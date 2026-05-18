@@ -1,38 +1,53 @@
 #pragma once
-#include <SFML/Graphics.hpp>
-#include <SFML/Audio.hpp>
+
 #include <SFML/Network.hpp>
-#include <mutex>
-#include <functional>
-#include <queue>
+#include <map>
+#include <string>
+#include "Client.h"
+#include "TCPServer.h"
 
 #define PM PacketManager::Instance()
 
-#define LISTENER_PORT 55007
-#define NUM_MAX_THREADS 4
+#define MAX_PLAYERS 4
 
-enum packetType { HANDSHAKE, LOGIN, REGISTER, RANKING, CREATE_LOBBY, JOIN_LOBBY, GAME_RESULT };
+enum tcpServerPacketType {
+    TCP_HANDSHAKE,
+    TCP_PLAYER_AUTHORIZED,
+    TCP_MATCH_CREATED,
+    TCP_MATCH_CLOSED,
+    TCP_GAME_RESULT
+};
 
-enum udpPacketType { MOVEMENT };
+// UDP_MOVEMENT debe seguir siendo 0 para cuadrar con el cliente actual.
+enum udpClientPacketType {
+    UDP_MOVEMENT,
+    UDP_REGISTER_CLIENT,
+    UDP_SHOOT,
+    UDP_HIT,
+    UDP_PING
+};
+
+enum movementPacketType {
+    SEND_RAW_MOVEMENT,
+    RECEIVE_VALIDATED_MOVEMENT
+};
 
 class PacketManager {
 private:
-    const sf::IpAddress SERVER_IP = sf::IpAddress(192, 168, 50, 124);
+    TCPServer* tcpServer = nullptr;
 
-    sf::TcpSocket socket;
+    std::map<unsigned short, Client> clients;
+    std::map<std::string, unsigned short> endpointToClientId;
+
+    std::string MakeEndpointKey(const sf::IpAddress& ip, unsigned short port);
+
+    Client* GetClientByEndpoint(const sf::IpAddress& ip, unsigned short port);
+    bool RegisterClientEndpoint(unsigned short clientId, const sf::IpAddress& ip, unsigned short port);
 
     PacketManager() = default;
     PacketManager(PacketManager&) = delete;
     PacketManager& operator =(const PacketManager&) = delete;
     ~PacketManager() = default;
-
-	std::queue<std::function<void()>> taskQueue;
-    std::mutex taskQueue_mutex;
-    std::mutex cosole_mutex;
-    std::mutex movement_mutex;
-    std::mutex bullet_mutex;
-    std::mutex flex_mutex;
-
 
 public:
     inline static PacketManager* Instance() {
@@ -40,14 +55,16 @@ public:
         return &instance;
     }
 
-    void PairToPair() {};
+    void SetTCPServer(TCPServer* server);
 
-    void HandlePacket(Client& client, sf::Packet& packet, DataBase& db, LobbyManager& lobbyManager, std::unordered_map<std::string, std::vector<std::vector<std::string>>>& gameResults);
+    void HandleTCPServerPacket(sf::Packet& packet);
 
-    void DisconnectClient(Client* client, LobbyManager& lobbyManager, sf::SocketSelector& selector);
+    void HandleUDPClientPacket(const char* buffer, std::size_t receivedSize, const sf::IpAddress& senderIP, unsigned short senderPort, sf::UdpSocket& udpSocket);
 
-    void SendData(sf::TcpSocket& client, sf::Packet& packet);
+    void HandleUDPRegisterClient(const char* buffer, std::size_t receivedSize, std::size_t readPos, const sf::IpAddress& senderIP, unsigned short senderPort);
 
-    void Worker();
-    void AddTask(std::function<void()> task);
+    void HandleUDPMovement(const char* buffer, std::size_t receivedSize, std::size_t readPos, const sf::IpAddress& senderIP, unsigned short senderPort, sf::UdpSocket& udpSocket);
+
+    void SendValidatedMovement(sf::UdpSocket& udpSocket, const Client& client);
+    void BroadcastMovementToOthers(sf::UdpSocket& udpSocket, const Client& movedClient);
 };
