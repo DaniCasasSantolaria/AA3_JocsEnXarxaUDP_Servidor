@@ -1,6 +1,8 @@
 #include <SFML/Network.hpp>
 #include <iostream>
 #include <string>
+#include <thread>
+#include "PackageManager.h"
 
 #define BIND_PORT 55000
 
@@ -22,12 +24,20 @@ void main()
 	std::optional <sf::IpAddress> senderIP;
 	unsigned short senderPort;
 
+	//THREADS
+	std::vector<std::thread> threads;
+
+	for (int i = 0; i < NUM_MAX_THREADS; i++)
+	{
+		threads.push_back(std::thread(&PacketManager::Worker, PM));
+	}
+
 	while (true)
 	{
+
 		if (socket.receive(buffer, sizeof(buffer), receivedData, senderIP, senderPort) == sf::Socket::Status::Done)
 		{
 			//std::cout << "Mensaje recibido de " << senderIP.value() << ": " << senderPort << std::endl;
-
 			std::size_t byToRead = 0;
 
 			int messageSize = 0;
@@ -43,5 +53,26 @@ void main()
 
 			std::cout << "Datos recibidos: " << receivedString << ": " << receivedData << std::endl;
 		}
+
+		//if (socket.receive(buffer, sizeof(buffer), receivedData, senderIP, senderPort) == sf::Socket::Status::Done)
+		//{
+		//	std::string packetData(buffer, receivedData);
+
+		//	PM->AddTask([packetData]() {
+		//		std::size_t byToRead = 0;
+
+		//		int messageSize = 0;
+		//		std::memcpy(&messageSize, packetData.data(), sizeof(messageSize));
+		//		byToRead += sizeof(messageSize);
+
+		//		std::string receivedString(packetData.data() + byToRead, messageSize);
+		//		byToRead += messageSize;
+
+		//		int receivedNumber = 0;
+		//		std::memcpy(&receivedNumber, packetData.data() + byToRead, sizeof(receivedNumber));
+
+		//		std::cout << "Datos recibidos: " << receivedString << ": " << receivedNumber << std::endl;
+		//		});
+		//}
 	}
 }
