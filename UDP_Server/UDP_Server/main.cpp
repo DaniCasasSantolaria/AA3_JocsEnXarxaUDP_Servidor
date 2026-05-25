@@ -1,78 +1,88 @@
 #include <SFML/Network.hpp>
 #include <iostream>
-#include <string>
-#include <thread>
 #include "PackageManager.h"
+#include "TCPServer.h"
 
-#define BIND_PORT 55000
+#define TCP_SERVER_IP sf::IpAddress(10, 8, 0, 3)
+#define TCP_SERVER_PORT 55007
+#define UDP_CLIENT_PORT 55008
 
-void main()
+int main()
 {
-	sf::UdpSocket socket;
+    TCPServer tcpServer(TCP_SERVER_IP, TCP_SERVER_PORT);
+    sf::UdpSocket udpSocket;
+    sf::SocketSelector selector;
 
-	if (socket.bind(BIND_PORT) == sf::Socket::Status::Done)
-	{
-		std::cout << "Puerto bindeado correctamente " << BIND_PORT << std::endl;
-	}
-	else
-	{
-		std::cerr << "Error al bindear el puerto " << BIND_PORT << std::endl;
-	}
+    if (!tcpServer.Connect()) {
+        std::cerr << "No se pudo conectar con el servidor TCP en puerto "
+            << TCP_SERVER_PORT << std::endl;
+        return -1;
+    }
 
-	char buffer[1024];
-	std::size_t receivedData;
-	std::optional <sf::IpAddress> senderIP;
-	unsigned short senderPort;
+    std::cout << "Conectado al servidor TCP" << std::endl;
 
-	//THREADS
-	std::vector<std::thread> threads;
+    sf::Packet handshakePacket;
 
-	for (int i = 0; i < NUM_MAX_THREADS; i++)
-	{
-		threads.push_back(std::thread(&PacketManager::Worker, PM));
-	}
+    handshakePacket << static_cast<short>(SERVER_HANDSHAKE);
 
-	while (true)
-	{
+    if (tcpServer.Send(handshakePacket)) {
+        std::cout << "TCP_SERVER_HANDSHAKE enviado al TCP Server" << std::endl;
+    }
+    else {
+        std::cerr << "No se pudo enviar TCP_SERVER_HANDSHAKE al TCP Server" << std::endl;
+    }
 
-		if (socket.receive(buffer, sizeof(buffer), receivedData, senderIP, senderPort) == sf::Socket::Status::Done)
-		{
-			//std::cout << "Mensaje recibido de " << senderIP.value() << ": " << senderPort << std::endl;
-			std::size_t byToRead = 0;
+    tcpServer.GetSocket().setBlocking(false);
+    selector.add(tcpServer.GetSocket());
 
-			int messageSize = 0;
-			std::memcpy(&messageSize, buffer, sizeof(messageSize));
-			byToRead += sizeof(messageSize);
+    if (udpSocket.bind(UDP_CLIENT_PORT) != sf::Socket::Status::Done) {
+        std::cerr << "Error al bindear UDP en puerto " << UDP_CLIENT_PORT << std::endl;
+        return -1;
+    }
 
-			std::string receivedString(buffer + byToRead, messageSize);
-			byToRead += messageSize;
+    udpSocket.setBlocking(false);
+    selector.add(udpSocket);
 
-			int receivedData;
-			std::memcpy(&receivedData, buffer + byToRead, sizeof(receivedData));
-			byToRead += sizeof(receivedData);
+    PM->SetTCPServer(&tcpServer);
 
-			std::cout << "Datos recibidos: " << receivedString << ": " << receivedData << std::endl;
-		}
+    while (true) {
+        if (!selector.wait(sf::milliseconds(10)))
+            continue;
 
-		//if (socket.receive(buffer, sizeof(buffer), receivedData, senderIP, senderPort) == sf::Socket::Status::Done)
-		//{
-		//	std::string packetData(buffer, receivedData);
+        if (tcpServer.IsConnected() && selector.isReady(tcpServer.GetSocket())) {
+            sf::Packet packet;
+            sf::Socket::Status status = tcpServer.GetSocket().receive(packet);
 
-		//	PM->AddTask([packetData]() {
-		//		std::size_t byToRead = 0;
+            if (status == sf::Socket::Status::Done) {
+                PM->HandleTCPServerPacket(packet);
+            }
+            else if (status == sf::Socket::Status::Disconnected) {
+                selector.remove(tcpServer.GetSocket());
+                tcpServer.Disconnect();
 
-		//		int messageSize = 0;
-		//		std::memcpy(&messageSize, packetData.data(), sizeof(messageSize));
-		//		byToRead += sizeof(messageSize);
+                std::cout << "Desconectado del servidor TCP" << std::endl;
+            }
+        }
 
-		//		std::string receivedString(packetData.data() + byToRead, messageSize);
-		//		byToRead += messageSize;
+        if (selector.isReady(udpSocket)) {
+            char buffer[1024];
+            std::size_t receivedSize = 0;
+            std::optional<sf::IpAddress> senderIP;
+            unsigned short senderPort = 0;
 
-		//		int receivedNumber = 0;
-		//		std::memcpy(&receivedNumber, packetData.data() + byToRead, sizeof(receivedNumber));
+            if (udpSocket.receive(buffer, sizeof(buffer), receivedSize, senderIP, senderPort) == sf::Socket::Status::Done) {
+                if (senderIP.has_value()) {
+                    PM->HandleUDPClientPacket(
+                        buffer,
+                        receivedSize,
+                        senderIP.value(),
+                        senderPort,
+                        udpSocket
+                    );
+                }
+            }
+        }
+    }
 
-		//		std::cout << "Datos recibidos: " << receivedString << ": " << receivedNumber << std::endl;
-		//		});
-		//}
-	}
+    return 0;
 }
