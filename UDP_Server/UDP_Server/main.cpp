@@ -2,6 +2,7 @@
 #include <iostream>
 #include "PackageManager.h"
 #include "TCPServer.h"
+#include <thread>
 
 #define TCP_SERVER_IP sf::IpAddress(10, 8, 0, 3)
 #define TCP_SERVER_PORT 55007
@@ -44,6 +45,14 @@ int main()
     selector.add(udpSocket);
 
     PM->SetTCPServer(&tcpServer);
+
+    //THREADS
+    std::vector<std::thread> threads;
+
+    for (int i = 0; i < NUM_MAX_THREADS; i++)
+    {
+        threads.push_back(std::thread(&PacketManager::Worker, PM));
+    }
 
     while (true) {
         if (!selector.wait(sf::milliseconds(10)))

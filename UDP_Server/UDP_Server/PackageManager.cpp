@@ -47,7 +47,7 @@ bool PacketManager::RegisterClientIP(unsigned short clientId, const std::string&
 
         if (existingClient.HasAddresAndPort())
             return false;
-        
+
         existingClient.SetAddress(ipAdress);
         existingClient.SetPort(port);
         endpointToClientId[key] = clientId;
@@ -198,15 +198,19 @@ void PacketManager::HandleUDPMovement(
     unsigned short senderPort,
     sf::UdpSocket& udpSocket
 ) {
+    movement_mutex.lock();
+
     Client* client = GetClientByIP(senderIP.toString(), senderPort);
 
     if (client == nullptr) {
         std::cout << "Movimiento UDP de cliente no registrado" << std::endl;
+        movement_mutex.unlock();
         return;
     }
 
     if (readPos + sizeof(movementPacketType) + sizeof(unsigned int) + sizeof(float) * 2 > receivedSize) {
         std::cout << "Paquete de movimiento incompleto" << std::endl;
+        movement_mutex.unlock();
         return;
     }
 
@@ -219,6 +223,7 @@ void PacketManager::HandleUDPMovement(
     readPos += sizeof(movementType);
 
     if (movementType != SEND_RAW_MOVEMENT) {
+        movement_mutex.unlock();
         return;
     }
 
@@ -233,6 +238,7 @@ void PacketManager::HandleUDPMovement(
 
     if (client->HasProcessedMovement() &&
         movementID <= client->GetLastProcessedMovementID()) {
+        movement_mutex.unlock();
         return;
     }
 
@@ -241,11 +247,12 @@ void PacketManager::HandleUDPMovement(
         float dy = receivedY - client->GetY();
         float distance = std::sqrt(dx * dx + dy * dy);
 
-        const float maxAllowedDistance = 1000.0f;
+        const float maxAllowedDistance = 500.0f;
 
         if (distance > maxAllowedDistance) {
             client->SetLastProcessedMovementID(movementID);
             SendValidatedMovement(udpSocket, *client);
+            movement_mutex.unlock();
             return;
         }
     }
@@ -255,12 +262,16 @@ void PacketManager::HandleUDPMovement(
 
     SendValidatedMovement(udpSocket, *client);
     BroadcastMovementToOthers(udpSocket, *client);
+
+    movement_mutex.unlock();
 }
 
 void PacketManager::SendValidatedMovement(sf::UdpSocket& udpSocket, const Client& client)
 {
     if (!client.HasAddresAndPort())
         return;
+
+    udp_mutex.lock();
 
     char buffer[1024];
     std::size_t size = 0;
@@ -295,7 +306,9 @@ void PacketManager::SendValidatedMovement(sf::UdpSocket& udpSocket, const Client
         std::cerr << "Error al enviar movimiento validado a cliente id = " << client.GetId() << std::endl;
     }
 
-	//std::cout << "Movimiento validado enviado a cliente id = " << client.GetId() << std::endl;
+    udp_mutex.unlock();
+
+    //std::cout << "Movimiento validado enviado a cliente id = " << client.GetId() << std::endl;
 }
 
 void PacketManager::BroadcastMovementToOthers(sf::UdpSocket& udpSocket, const Client& movedClient)
@@ -357,4 +370,40 @@ void PacketManager::BroadcastMovementToOthers(sf::UdpSocket& udpSocket, const Cl
 
         udpSocket.send(buffer, size, target.GetIpAddress().value(), target.GetPort());
     }
+}
+
+void PacketManager::Worker()
+{
+    bool closeThread = false;
+
+    while (!closeThread)
+    {
+        std::function<void()> task;
+
+        taskQueue_mutex.lock();
+
+        if (!taskQueue.empty())
+        {
+            task = taskQueue.front();
+            taskQueue.pop();
+        }
+        else
+        {
+            //closeThread = true;
+        }
+
+        taskQueue_mutex.unlock();
+
+        if (task)
+        {
+            task();
+        }
+    }
+}
+
+void PacketManager::AddTask(std::function<void()> task)
+{
+    taskQueue_mutex.lock();
+    taskQueue.push(task);
+    taskQueue_mutex.unlock();
 }

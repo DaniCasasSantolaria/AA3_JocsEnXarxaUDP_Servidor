@@ -6,10 +6,14 @@
 #include "Client.h"
 #include "TCPServer.h"
 #include "Match.h"
+#include <mutex>
+#include <functional>
+#include <queue>
 
 #define PM PacketManager::Instance()
 
 #define MAX_PLAYERS 2
+#define NUM_MAX_THREADS 5
 
 //TCP Paquetes
 enum packetType {
@@ -66,6 +70,14 @@ private:
     PacketManager& operator =(const PacketManager&) = delete;
     ~PacketManager() = default;
 
+    std::queue<std::function<void()>> taskQueue;
+    std::mutex udp_mutex;
+    std::mutex taskQueue_mutex;
+    std::mutex cosole_mutex;
+    std::mutex movement_mutex;
+    std::mutex bullet_mutex;
+    std::mutex flex_mutex;
+
 public:
     inline static PacketManager* Instance() {
         static PacketManager instance;
@@ -84,4 +96,8 @@ public:
 
     void SendValidatedMovement(sf::UdpSocket& udpSocket, const Client& client);
     void BroadcastMovementToOthers(sf::UdpSocket& udpSocket, const Client& movedClient);
+
+    void Worker();
+    void AddTask(std::function<void()> task);
+
 };
