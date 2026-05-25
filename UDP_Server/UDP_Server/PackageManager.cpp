@@ -190,11 +190,23 @@ void PacketManager::HandleUDPClientPacket(const char* buffer, std::size_t receiv
     }
 }
 
-void PacketManager::HandleUDPMovement(const char* buffer, std::size_t receivedSize, std::size_t readPos, const sf::IpAddress& senderIP, unsigned short senderPort, sf::UdpSocket& udpSocket) {
+void PacketManager::HandleUDPMovement(
+    const char* buffer,
+    std::size_t receivedSize,
+    std::size_t readPos,
+    const sf::IpAddress& senderIP,
+    unsigned short senderPort,
+    sf::UdpSocket& udpSocket
+) {
     Client* client = GetClientByIP(senderIP.toString(), senderPort);
 
     if (client == nullptr) {
         std::cout << "Movimiento UDP de cliente no registrado" << std::endl;
+        return;
+    }
+
+    if (readPos + sizeof(movementPacketType) + sizeof(unsigned int) + sizeof(float) * 2 > receivedSize) {
+        std::cout << "Paquete de movimiento incompleto" << std::endl;
         return;
     }
 
@@ -206,8 +218,9 @@ void PacketManager::HandleUDPMovement(const char* buffer, std::size_t receivedSi
     std::memcpy(&movementType, buffer + readPos, sizeof(movementType));
     readPos += sizeof(movementType);
 
-    if (movementType != SEND_RAW_MOVEMENT)
+    if (movementType != SEND_RAW_MOVEMENT) {
         return;
+    }
 
     std::memcpy(&movementID, buffer + readPos, sizeof(movementID));
     readPos += sizeof(movementID);
@@ -218,28 +231,30 @@ void PacketManager::HandleUDPMovement(const char* buffer, std::size_t receivedSi
     std::memcpy(&receivedY, buffer + readPos, sizeof(receivedY));
     readPos += sizeof(receivedY);
 
-    if (movementID <= client->GetLastProcessedMovementID())
+    if (client->HasProcessedMovement() &&
+        movementID <= client->GetLastProcessedMovementID()) {
         return;
+    }
 
-    float dx = receivedX - client->GetX();
-    float dy = receivedY - client->GetY();
-    float distance = std::sqrt(dx * dx + dy * dy);
+    if (client->HasProcessedMovement()) {
+        float dx = receivedX - client->GetX();
+        float dy = receivedY - client->GetY();
+        float distance = std::sqrt(dx * dx + dy * dy);
 
-    const float maxAllowedDistance = 1000.0f;
+        const float maxAllowedDistance = 1000.0f;
 
-  //  if (distance <= maxAllowedDistance) {
-  //      client->SetPosition(receivedX, receivedY);
-		//std::cout << "Movimiento UDP validado para cliente id = " << client->GetId() << " | Received: (" << receivedX << ", " << receivedY << ") | Validated: (" << client->GetX() << ", " << client->GetY() << ")" << std::endl;
-  //  }
+        if (distance > maxAllowedDistance) {
+            client->SetLastProcessedMovementID(movementID);
+            SendValidatedMovement(udpSocket, *client);
+            return;
+        }
+    }
 
     client->SetPosition(receivedX, receivedY);
-
     client->SetLastProcessedMovementID(movementID);
 
-    //SendValidatedMovement(udpSocket, *client);
+    SendValidatedMovement(udpSocket, *client);
     BroadcastMovementToOthers(udpSocket, *client);
-
-	//std::cout << "Movimiento UDP procesado para cliente id = " << client->GetId() << " | Received: (" << receivedX << ", " << receivedY << ") | Validated: (" << client->GetX() << ", " << client->GetY() << ")" << std::endl;
 }
 
 void PacketManager::SendValidatedMovement(sf::UdpSocket& udpSocket, const Client& client)
@@ -285,6 +300,20 @@ void PacketManager::SendValidatedMovement(sf::UdpSocket& udpSocket, const Client
 
 void PacketManager::BroadcastMovementToOthers(sf::UdpSocket& udpSocket, const Client& movedClient)
 {
+    std::map<unsigned short, unsigned int>::iterator matchIdIt =
+        clientToMatchId.find(movedClient.GetId());
+
+    if (matchIdIt == clientToMatchId.end())
+        return;
+
+    std::map<unsigned int, Match>::iterator matchIt =
+        activeMatches.find(matchIdIt->second);
+
+    if (matchIt == activeMatches.end())
+        return;
+
+    const Match& match = matchIt->second;
+
     char buffer[1024];
     std::size_t size = 0;
 
@@ -320,13 +349,12 @@ void PacketManager::BroadcastMovementToOthers(sf::UdpSocket& udpSocket, const Cl
         if (target.GetId() == movedClient.GetId())
             continue;
 
+        if (!match.HasPlayer(target.GetId()))
+            continue;
+
         if (!target.HasAddresAndPort())
             continue;
 
-        if (udpSocket.send(buffer, size, target.GetIpAddress().value(), target.GetPort()) != sf::Socket::Status::Done) {
-            std::cerr << "Error al enviar movimiento validado a cliente id = " << target.GetId() << std::endl;
-        }
+        udpSocket.send(buffer, size, target.GetIpAddress().value(), target.GetPort());
     }
-
-	//std::cout << "Movimiento validado de cliente id = " << movedClient.GetId() << " transmitido a otros clientes" << std::endl;
 }

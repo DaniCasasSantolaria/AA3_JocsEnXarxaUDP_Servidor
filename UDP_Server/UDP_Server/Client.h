@@ -16,6 +16,7 @@ private:
     float x = 0.0f;
     float y = 0.0f;
     unsigned int lastProcessedMovementID = 0;
+    bool hasProcessedMovement = false;
 
 public:
     Client()
@@ -41,7 +42,10 @@ public:
 
     inline float GetX() const { return x; }
     inline float GetY() const { return y; }
-    inline unsigned int GetLastProcessedMovementID() const { return lastProcessedMovementID; }
+	inline unsigned int GetLastProcessedMovementID() const { return lastProcessedMovementID; }
+
+    inline bool HasProcessedMovement() const { return hasProcessedMovement; }
+    
 
     inline void SetUsername(const std::string& newUsername) { username = newUsername; }
     inline void SetId(unsigned short newId) { id = newId; }
@@ -53,5 +57,8 @@ public:
         y = newY;
     }
 
-    inline void SetLastProcessedMovementID(unsigned int newMovementID) { lastProcessedMovementID = newMovementID; }
+    inline void SetLastProcessedMovementID(unsigned int newMovementID) {
+        lastProcessedMovementID = newMovementID;
+        hasProcessedMovement = true;
+    }
 };
