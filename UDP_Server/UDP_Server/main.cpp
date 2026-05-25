@@ -3,7 +3,7 @@
 #include "PackageManager.h"
 #include "TCPServer.h"
 
-#define TCP_SERVER_IP sf::IpAddress(127, 0, 0, 1)
+#define TCP_SERVER_IP sf::IpAddress(10, 8, 0, 3)
 #define TCP_SERVER_PORT 55007
 #define UDP_CLIENT_PORT 55008
 
@@ -20,6 +20,17 @@ int main()
     }
 
     std::cout << "Conectado al servidor TCP" << std::endl;
+
+    sf::Packet handshakePacket;
+
+    handshakePacket << static_cast<short>(TCP_SERVER_HANDSHAKE);
+
+    if (tcpServer.Send(handshakePacket)) {
+        std::cout << "TCP_SERVER_HANDSHAKE enviado al TCP Server" << std::endl;
+    }
+    else {
+        std::cerr << "No se pudo enviar TCP_SERVER_HANDSHAKE al TCP Server" << std::endl;
+    }
 
     tcpServer.GetSocket().setBlocking(false);
     selector.add(tcpServer.GetSocket());

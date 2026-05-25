@@ -5,18 +5,21 @@
 #include <string>
 #include "Client.h"
 #include "TCPServer.h"
+#include "Match.h"
 
 #define PM PacketManager::Instance()
 
 #define MAX_PLAYERS 4
 
 enum tcpServerPacketType {
-    TCP_HANDSHAKE,
-    TCP_PLAYER_AUTHORIZED,
-    TCP_MATCH_CREATED,
+    HANDSHAKE, LOGIN, REGISTER, RANKING, MATCHMAKE, WIN_NOTIFICATION, GAME_RESULT, MAP_REQUEST,
+    TCP_SERVER_HANDSHAKE,
+	TCP_MATCH_CREATED,
     TCP_MATCH_CLOSED,
     TCP_GAME_RESULT
 };
+
+enum matchMode { NON_COMPETITIVE, COMPETITIVE };
 
 // UDP_MOVEMENT debe seguir siendo 0 para cuadrar con el cliente actual.
 enum udpClientPacketType {
@@ -38,6 +41,9 @@ private:
 
     std::map<unsigned short, Client> clients;
     std::map<std::string, unsigned short> endpointToClientId;
+
+    std::map<unsigned int, Match> activeMatches;
+    std::map<unsigned short, unsigned int> clientToMatchId;
 
     std::string MakeEndpointKey(const sf::IpAddress& ip, unsigned short port);
 

@@ -4,6 +4,17 @@
 #include <cmath>
 #include <cstring>
 
+sf::Packet& operator <<(sf::Packet& packet, tcpServerPacketType type) {
+    return packet << static_cast<short>(type);
+}
+
+sf::Packet& operator >>(sf::Packet& packet, tcpServerPacketType& type) {
+    short temp;
+    packet >> temp;
+    type = static_cast<tcpServerPacketType>(temp);
+    return packet;
+}
+
 std::string PacketManager::MakeEndpointKey(const sf::IpAddress& ip, unsigned short port)
 {
     return ip.toString() + ":" + std::to_string(port);
@@ -66,53 +77,71 @@ bool PacketManager::RegisterClientEndpoint(unsigned short clientId, const sf::Ip
 
 void PacketManager::HandleTCPServerPacket(sf::Packet& packet)
 {
-    int rawType = 0;
-    packet >> rawType;
+    //short rawType = 0;
+    //packet >> rawType;
 
-    tcpServerPacketType type = static_cast<tcpServerPacketType>(rawType);
+    //tcpServerPacketType type = static_cast<tcpServerPacketType>(rawType);
+
+    tcpServerPacketType type;
+    packet >> type;
 
     switch (type) {
-    case TCP_HANDSHAKE:
-    {
-        std::cout << "TCP_HANDSHAKE recibido del otro servidor" << std::endl;
-
-        if (tcpServer != nullptr && tcpServer->IsConnected()) {
-            sf::Packet response;
-            response << static_cast<int>(TCP_HANDSHAKE);
-            tcpServer->Send(response);
-        }
-
-        break;
-    }
-
-    case TCP_PLAYER_AUTHORIZED:
-    {
-        unsigned short clientId = 0;
-        std::string username;
-
-        packet >> clientId >> username;
-
-        auto clientIt = clients.find(clientId);
-
-        if (clientIt == clients.end()) {
-            clients[clientId] = Client(clientId, username);
-        }
-        else {
-            clientIt->second.SetUsername(username);
-        }
-
-        std::cout << "Cliente autorizado por TCP: id=" << clientId
-            << " username=" << username << std::endl;
-
-        break;
-    }
-
     case TCP_MATCH_CREATED:
     {
+        unsigned short matchId = 0;
+        short modeValue = 0;
+
+        unsigned short p1Id = 0;
+        std::string p1Username;
+
+        unsigned short p2Id = 0;
+        std::string p2Username;
+
+        packet >> matchId
+            >> modeValue
+            >> p1Id
+            >> p1Username
+            >> p2Id
+            >> p2Username;
+
         std::cout << "TCP_MATCH_CREATED recibido" << std::endl;
+        std::cout << "MatchId: " << matchId << std::endl;
+        std::cout << "Mode: " << modeValue << std::endl;
+        std::cout << "P1: id=" << p1Id << " username=" << p1Username << std::endl;
+        std::cout << "P2: id=" << p2Id << " username=" << p2Username << std::endl;
+
+        auto p1It = clients.find(p1Id);
+
+        if (p1It == clients.end()) {
+            clients[p1Id] = Client(p1Id, p1Username);
+        }
+        else {
+            p1It->second.SetUsername(p1Username);
+        }
+
+        auto p2It = clients.find(p2Id);
+
+        if (p2It == clients.end()) {
+            clients[p2Id] = Client(p2Id, p2Username);
+        }
+        else {
+            p2It->second.SetUsername(p2Username);
+        }
+
+        Match match(matchId, modeValue, p1Id, p2Id);
+        activeMatches[matchId] = match;
+
+        clientToMatchId[p1Id] = matchId;
+        clientToMatchId[p2Id] = matchId;
+
+        std::cout << "Match guardada en UDP Server. MatchId: "
+            << matchId
+            << " | P1: " << p1Id
+            << " | P2: " << p2Id
+            << std::endl;
+
         break;
     }
-
     case TCP_MATCH_CLOSED:
     {
         std::cout << "TCP_MATCH_CLOSED recibido. Limpiando clientes UDP" << std::endl;
