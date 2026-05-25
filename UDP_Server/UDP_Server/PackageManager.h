@@ -9,25 +9,34 @@
 
 #define PM PacketManager::Instance()
 
-#define MAX_PLAYERS 4
+#define MAX_PLAYERS 2
 
-enum tcpServerPacketType {
-    HANDSHAKE, LOGIN, REGISTER, RANKING, MATCHMAKE, WIN_NOTIFICATION, GAME_RESULT, MAP_REQUEST,
-    TCP_SERVER_HANDSHAKE,
-	TCP_MATCH_CREATED,
-    TCP_MATCH_CLOSED,
-    TCP_GAME_RESULT
+//TCP Paquetes
+enum packetType {
+    HANDSHAKE,
+    LOGIN,
+    REGISTER,
+    RANKING,
+    MATCHMAKE,
+    WIN_NOTIFICATION,
+    GAME_RESULT,
+    MAP_REQUEST,
+    SERVER_HANDSHAKE,
+    MATCH_CREATED
 };
 
-enum matchMode { NON_COMPETITIVE, COMPETITIVE };
+enum matchMode {
+    NON_COMPETITIVE,
+    COMPETITIVE
+};
 
 // UDP_MOVEMENT debe seguir siendo 0 para cuadrar con el cliente actual.
-enum udpClientPacketType {
-    UDP_MOVEMENT,
-    UDP_REGISTER_CLIENT,
-    UDP_SHOOT,
-    UDP_HIT,
-    UDP_PING
+enum udpPacketType {
+    MOVEMENT,
+    REGISTER_CLIENT,
+    SHOOT,
+    HIT,
+    PING
 };
 
 enum movementPacketType {
@@ -45,10 +54,12 @@ private:
     std::map<unsigned int, Match> activeMatches;
     std::map<unsigned short, unsigned int> clientToMatchId;
 
-    std::string MakeEndpointKey(const sf::IpAddress& ip, unsigned short port);
+    inline std::string MakeIPKey(const std::string& ip, unsigned short port) {
+        return ip + ":" + std::to_string(port);
+    }
 
-    Client* GetClientByEndpoint(const sf::IpAddress& ip, unsigned short port);
-    bool RegisterClientEndpoint(unsigned short clientId, const sf::IpAddress& ip, unsigned short port);
+    Client* GetClientByIP(const std::string& ip, unsigned short port);
+    bool RegisterClientIP(unsigned short clientId, const std::string& ip, unsigned short port);
 
     PacketManager() = default;
     PacketManager(PacketManager&) = delete;
@@ -61,13 +72,13 @@ public:
         return &instance;
     }
 
-    void SetTCPServer(TCPServer* server);
+    inline void SetTCPServer(TCPServer* server) {
+        tcpServer = server;
+    }
 
     void HandleTCPServerPacket(sf::Packet& packet);
 
     void HandleUDPClientPacket(const char* buffer, std::size_t receivedSize, const sf::IpAddress& senderIP, unsigned short senderPort, sf::UdpSocket& udpSocket);
-
-    void HandleUDPRegisterClient(const char* buffer, std::size_t receivedSize, std::size_t readPos, const sf::IpAddress& senderIP, unsigned short senderPort);
 
     void HandleUDPMovement(const char* buffer, std::size_t receivedSize, std::size_t readPos, const sf::IpAddress& senderIP, unsigned short senderPort, sf::UdpSocket& udpSocket);
 

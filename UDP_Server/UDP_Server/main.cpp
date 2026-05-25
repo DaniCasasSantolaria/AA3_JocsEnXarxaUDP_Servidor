@@ -23,7 +23,7 @@ int main()
 
     sf::Packet handshakePacket;
 
-    handshakePacket << static_cast<short>(TCP_SERVER_HANDSHAKE);
+    handshakePacket << static_cast<short>(SERVER_HANDSHAKE);
 
     if (tcpServer.Send(handshakePacket)) {
         std::cout << "TCP_SERVER_HANDSHAKE enviado al TCP Server" << std::endl;

@@ -45,7 +45,7 @@ public:
 
     inline void SetUsername(const std::string& newUsername) { username = newUsername; }
     inline void SetId(unsigned short newId) { id = newId; }
-    inline void SetAddress(const sf::IpAddress& newAddress) { address = newAddress; }
+    inline void SetAddress(const std::optional<sf::IpAddress> newAddress) { address = newAddress; }
     inline void SetPort(unsigned short newPort) { port = newPort; }
 
     inline void SetPosition(float newX, float newY) {
