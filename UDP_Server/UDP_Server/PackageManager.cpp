@@ -3,6 +3,8 @@
 #include <iostream>
 #include <cmath>
 #include <cstring>
+#include <chrono>
+#include <thread>
 
 sf::Packet& operator <<(sf::Packet& packet, packetType type) {
     return packet << static_cast<short>(type);
@@ -208,12 +210,6 @@ void PacketManager::HandleUDPMovement(
         return;
     }
 
-    if (readPos + sizeof(movementPacketType) + sizeof(unsigned int) + sizeof(float) * 2 > receivedSize) {
-        std::cout << "Paquete de movimiento incompleto" << std::endl;
-        movement_mutex.unlock();
-        return;
-    }
-
     movementPacketType movementType;
     unsigned int movementID = 0;
     float receivedX = 0.0f;
@@ -387,16 +383,16 @@ void PacketManager::Worker()
             task = taskQueue.front();
             taskQueue.pop();
         }
-        else
-        {
-            //closeThread = true;
-        }
 
         taskQueue_mutex.unlock();
 
         if (task)
         {
             task();
+        }
+        else
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }
 }

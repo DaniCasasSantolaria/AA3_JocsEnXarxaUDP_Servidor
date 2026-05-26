@@ -81,13 +81,19 @@ int main()
 
             if (udpSocket.receive(buffer, sizeof(buffer), receivedSize, senderIP, senderPort) == sf::Socket::Status::Done) {
                 if (senderIP.has_value()) {
-                    PM->HandleUDPClientPacket(
-                        buffer,
-                        receivedSize,
-                        senderIP.value(),
-                        senderPort,
-                        udpSocket
-                    );
+                    
+                    std::vector<char> packetData(buffer, buffer + receivedSize);
+                    sf::IpAddress clientIP = senderIP.value();
+
+                    PM->AddTask([packetData, clientIP, senderPort, &udpSocket]() {
+                        PM->HandleUDPClientPacket(
+                            packetData.data(),
+                            packetData.size(),
+                            clientIP,
+                            senderPort,
+                            udpSocket
+                        );
+                    });
                 }
             }
         }

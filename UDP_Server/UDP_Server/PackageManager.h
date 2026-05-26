@@ -71,12 +71,11 @@ private:
     ~PacketManager() = default;
 
     std::queue<std::function<void()>> taskQueue;
-    std::mutex udp_mutex;
     std::mutex taskQueue_mutex;
+
+    std::mutex udp_mutex;
     std::mutex cosole_mutex;
     std::mutex movement_mutex;
-    std::mutex bullet_mutex;
-    std::mutex flex_mutex;
 
 public:
     inline static PacketManager* Instance() {
