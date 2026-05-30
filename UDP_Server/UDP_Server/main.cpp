@@ -4,8 +4,9 @@
 #include "TCPServer.h"
 #include <thread>
 
-#define TCP_SERVER_IP sf::IpAddress(10, 8, 0, 4)
+#define TCP_SERVER_IP sf::IpAddress(10, 8, 0, 3)
 #define TCP_SERVER_PORT 55007
+#define UDP_SERVER_PORT 55008
 #define UDP_CLIENT_PORT 55009
 
 int main()
@@ -36,8 +37,8 @@ int main()
     tcpServer.GetSocket().setBlocking(false);
     selector.add(tcpServer.GetSocket());
 
-    if (udpSocket.bind(UDP_CLIENT_PORT) != sf::Socket::Status::Done) {
-        std::cerr << "Error al bindear UDP en puerto " << UDP_CLIENT_PORT << std::endl;
+    if (udpSocket.bind(UDP_SERVER_PORT) != sf::Socket::Status::Done) {
+        std::cerr << "Error al bindear UDP en puerto " << UDP_SERVER_PORT << std::endl;
         return -1;
     }
 

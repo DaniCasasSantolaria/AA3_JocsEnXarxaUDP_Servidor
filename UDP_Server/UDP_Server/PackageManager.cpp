@@ -162,7 +162,9 @@ void PacketManager::HandleTCPServerPacket(sf::Packet& packet)
         std::string p2IP;
         unsigned short p2Port = 0;
 
-        packet >> matchId >> modeValue >> p1Id >> p1Username >> p1IP >> p1Port >> p2Id >> p2Username >> p2IP >> p2Port;
+        packet >> matchId >> modeValue
+            >> p1Id >> p1Username
+            >> p2Id >> p2Username;
 
         std::cout << "TCP_MATCH_CREATED recibido" << std::endl;
         std::cout << "MatchId: " << matchId << std::endl;
@@ -170,7 +172,7 @@ void PacketManager::HandleTCPServerPacket(sf::Packet& packet)
         std::cout << "P1: id=" << p1Id << " username=" << p1Username << " IP=" << p1IP << " Port=" << p1Port << std::endl;
         std::cout << "P2: id=" << p2Id << " username=" << p2Username << " IP=" << p2IP << " Port=" << p2Port << std::endl;
 
-        std::map<unsigned short, Client>::iterator p1It = clients.find(p1Id);
+  /*      std::map<unsigned short, Client>::iterator p1It = clients.find(p1Id);
 
         if (p1It == clients.end()) {
             clients[p1Id] = Client(p1Id, p1Username);
@@ -186,7 +188,10 @@ void PacketManager::HandleTCPServerPacket(sf::Packet& packet)
         }
         else {
             p2It->second.SetUsername(p2Username);
-        }
+        }*/
+
+        clients[p1Id] = Client(p1Id, p1Username);
+        clients[p2Id] = Client(p2Id, p2Username);
 
         Match match(matchId, modeValue, p1Id, p2Id);
         activeMatches[matchId] = match;
@@ -194,19 +199,19 @@ void PacketManager::HandleTCPServerPacket(sf::Packet& packet)
         clientToMatchId[p1Id] = matchId;
         clientToMatchId[p2Id] = matchId;
 
-        if (RegisterClientIP(p1Id, p1IP, p1Port)) {
-            std::cout << "Cliente UDP registrado: id=" << p1Id << std::endl;
-        }
-        else {
-            std::cout << "Cliente UDP repetido o invalido: id=" << p1Id << std::endl;
-        }
+        //if (RegisterClientIP(p1Id, p1IP, p1Port)) {
+        //    std::cout << "Cliente UDP registrado: id=" << p1Id << std::endl;
+        //}
+        //else {
+        //    std::cout << "Cliente UDP repetido o invalido: id=" << p1Id << std::endl;
+        //}
 
-        if (RegisterClientIP(p2Id, p2IP, p2Port)) {
-            std::cout << "Cliente UDP registrado: id=" << p2Id << std::endl;
-        }
-        else {
-            std::cout << "Cliente UDP repetido o invalido: id=" << p1Id << std::endl;
-        }
+        //if (RegisterClientIP(p2Id, p2IP, p2Port)) {
+        //    std::cout << "Cliente UDP registrado: id=" << p2Id << std::endl;
+        //}
+        //else {
+        //    std::cout << "Cliente UDP repetido o invalido: id=" << p1Id << std::endl;
+        //}
 
         std::cout << "Match guardada en UDP Server. MatchId: " << matchId << " | P1: " << p1Id << " | P2: " << p2Id << std::endl;
         break;
@@ -266,7 +271,24 @@ void PacketManager::HandleUDPClientPacket(const char* buffer, std::size_t receiv
 void PacketManager::HandleUDPMovement(const char* buffer, std::size_t receivedSize, std::size_t readPos, const sf::IpAddress& senderIP, unsigned short senderPort, sf::UdpSocket& udpSocket) {
     movement_mutex.lock();
 
-    Client* client = GetClientByIP(senderIP.toString(), senderPort);
+    unsigned short clientId = 0;
+
+    std::memcpy(&clientId, buffer + readPos, sizeof(clientId));
+    readPos += sizeof(clientId);
+
+    std::map<unsigned short, Client>::iterator clientIt = clients.find(clientId);
+
+    if (clientIt == clients.end()) {
+        std::cout << "Movimiento UDP de cliente no autorizado por TCP. id="
+            << clientId << std::endl;
+        movement_mutex.unlock();
+        return;
+    }
+
+    Client* client = &clientIt->second;
+
+    client->SetAddress(senderIP);
+    client->SetPort(senderPort);
 
     if (client == nullptr) {
         std::cout << "Movimiento UDP de cliente no registrado" << std::endl;
