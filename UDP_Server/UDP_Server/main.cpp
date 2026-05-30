@@ -4,9 +4,9 @@
 #include "TCPServer.h"
 #include <thread>
 
-#define TCP_SERVER_IP sf::IpAddress(10, 8, 0, 3)
+#define TCP_SERVER_IP sf::IpAddress(10, 8, 0, 4)
 #define TCP_SERVER_PORT 55007
-#define UDP_CLIENT_PORT 55008
+#define UDP_CLIENT_PORT 55009
 
 int main()
 {
@@ -45,6 +45,7 @@ int main()
     selector.add(udpSocket);
 
     PM->SetTCPServer(&tcpServer);
+    PM->RequestMap();
 
     //THREADS
     std::vector<std::thread> threads;
@@ -79,7 +80,7 @@ int main()
             std::optional<sf::IpAddress> senderIP;
             unsigned short senderPort = 0;
 
-            if (udpSocket.receive(buffer, sizeof(buffer), receivedSize, senderIP, senderPort) == sf::Socket::Status::Done) {
+            while(udpSocket.receive(buffer, sizeof(buffer), receivedSize, senderIP, senderPort) == sf::Socket::Status::Done) {
                 if (senderIP.has_value()) {
                     
                     std::vector<char> packetData(buffer, buffer + receivedSize);

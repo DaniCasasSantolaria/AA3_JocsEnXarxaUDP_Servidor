@@ -9,6 +9,7 @@
 #include <mutex>
 #include <functional>
 #include <queue>
+#include <SFML/System.hpp>
 
 #define PM PacketManager::Instance()
 
@@ -48,6 +49,12 @@ enum movementPacketType {
     RECEIVE_VALIDATED_MOVEMENT
 };
 
+enum mapRequestType {
+    MAP_VERSION_CHECK,
+    MAP_UP_TO_DATE,
+    MAP_UPDATE
+};
+
 class PacketManager {
 private:
     TCPServer* tcpServer = nullptr;
@@ -65,17 +72,32 @@ private:
     Client* GetClientByIP(const std::string& ip, unsigned short port);
     bool RegisterClientIP(unsigned short clientId, const std::string& ip, unsigned short port);
 
-    PacketManager() = default;
-    PacketManager(PacketManager&) = delete;
-    PacketManager& operator =(const PacketManager&) = delete;
-    ~PacketManager() = default;
-
     std::queue<std::function<void()>> taskQueue;
+
+    //Reloj para el movimiento
+    sf::Clock movementClock;
+
+    //MUTEX
     std::mutex taskQueue_mutex;
 
     std::mutex udp_mutex;
     std::mutex cosole_mutex;
     std::mutex movement_mutex;
+
+
+    //MAPA
+    std::vector<std::string> mapLines;
+    bool mapLoaded = false;
+
+    bool LoadMap();
+    bool IsSolidTile(char tile) const;
+    bool IsPositionInsideSolid(float x, float y);
+
+
+    PacketManager() = default;
+    PacketManager(PacketManager&) = delete;
+    PacketManager& operator =(const PacketManager&) = delete;
+    ~PacketManager() = default;
 
 public:
     inline static PacketManager* Instance() {
@@ -99,4 +121,10 @@ public:
     void Worker();
     void AddTask(std::function<void()> task);
 
+    void RequestMap();
+    void HandleMapRequest(sf::Packet& packet);
+
+    unsigned short LoadLocalMapVersion();
+    void SaveLocalMap(const std::string& mapContent);
+    void SaveLocalMapVersion(unsigned short version);
 };

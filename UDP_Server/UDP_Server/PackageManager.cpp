@@ -5,6 +5,8 @@
 #include <cstring>
 #include <chrono>
 #include <thread>
+#include <fstream>
+#include <sstream>
 
 sf::Packet& operator <<(sf::Packet& packet, packetType type) {
     return packet << static_cast<short>(type);
@@ -68,6 +70,70 @@ bool PacketManager::RegisterClientIP(unsigned short clientId, const std::string&
     endpointToClientId[key] = clientId;
 
     return true;
+}
+
+bool PacketManager::IsSolidTile(char tile) const {
+    return tile == '#' || tile == 'P';
+}
+
+bool PacketManager::LoadMap() {
+    if (mapLoaded) {
+        return true;
+    }
+
+    std::ifstream file("resources/Maps/Map.txt");
+
+    if (!file.is_open()) {
+        return false;
+    }
+
+    std::string line;
+
+    while (std::getline(file, line)) {
+        mapLines.push_back(line);
+    }
+
+    mapLoaded = true;
+    return true;
+}
+
+bool PacketManager::IsPositionInsideSolid(float x, float y) {
+    if (!LoadMap()) {
+        return true;
+    }
+
+    const float tileSize = 48.0f;
+    const float playerHalfSize = 48.0f;
+
+    float playerLeft = x - playerHalfSize;
+    float playerRight = x + playerHalfSize;
+    float playerTop = y - playerHalfSize;
+    float playerBottom = y + playerHalfSize;
+
+    for (unsigned int row = 0; row < mapLines.size(); row++) {
+        for (unsigned int col = 0; col < mapLines[row].size(); col++) {
+            if (!IsSolidTile(mapLines[row][col])) {
+                continue;
+            }
+
+            float tileLeft = col * tileSize;
+            float tileRight = tileLeft + tileSize;
+            float tileTop = row * tileSize;
+            float tileBottom = tileTop + tileSize;
+
+            bool overlap =
+                playerRight > tileLeft &&
+                playerLeft < tileRight &&
+                playerBottom > tileTop &&
+                playerTop < tileBottom;
+
+            if (overlap) {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 void PacketManager::HandleTCPServerPacket(sf::Packet& packet)
@@ -152,7 +218,12 @@ void PacketManager::HandleTCPServerPacket(sf::Packet& packet)
         std::cout << "TCP_GAME_RESULT recibido" << std::endl;
         break;
     }
-
+    case MAP_REQUEST:
+    {
+        std::cout << "TCP_MAP_REQUEST recibido" << std::endl;
+        HandleMapRequest(packet);
+        break;
+	}
     default:
         std::cout << "Paquete TCP desconocido" << std::endl;
         break;
@@ -192,14 +263,7 @@ void PacketManager::HandleUDPClientPacket(const char* buffer, std::size_t receiv
     }
 }
 
-void PacketManager::HandleUDPMovement(
-    const char* buffer,
-    std::size_t receivedSize,
-    std::size_t readPos,
-    const sf::IpAddress& senderIP,
-    unsigned short senderPort,
-    sf::UdpSocket& udpSocket
-) {
+void PacketManager::HandleUDPMovement(const char* buffer, std::size_t receivedSize, std::size_t readPos, const sf::IpAddress& senderIP, unsigned short senderPort, sf::UdpSocket& udpSocket) {
     movement_mutex.lock();
 
     Client* client = GetClientByIP(senderIP.toString(), senderPort);
@@ -238,14 +302,26 @@ void PacketManager::HandleUDPMovement(
         return;
     }
 
-    if (client->HasProcessedMovement()) {
+    float currentTime = movementClock.getElapsedTime().asSeconds();
+
+    if (client->HasMovementTime()) {
+        float deltaTime = currentTime - client->GetLastMovementTime();
+
         float dx = receivedX - client->GetX();
         float dy = receivedY - client->GetY();
-        float distance = std::sqrt(dx * dx + dy * dy);
 
-        const float maxAllowedDistance = 500.0f;
+        float absDx = std::abs(dx);
+        float absDy = std::abs(dy);
 
-        if (distance > maxAllowedDistance) {
+        const float playerMoveSpeed = 300.0f;
+        const float maxVerticalSpeed = 1200.0f;
+        const float tolerance = 2.0f;
+        const float margin = 20.0f;
+
+        float maxAllowedX = playerMoveSpeed * deltaTime * tolerance + margin;
+        float maxAllowedY = maxVerticalSpeed * deltaTime * tolerance + margin;
+
+        if (absDx > maxAllowedX || absDy > maxAllowedY) {
             client->SetLastProcessedMovementID(movementID);
             SendValidatedMovement(udpSocket, *client);
             movement_mutex.unlock();
@@ -253,8 +329,16 @@ void PacketManager::HandleUDPMovement(
         }
     }
 
+    if (IsPositionInsideSolid(receivedX, receivedY)) {
+        client->SetLastProcessedMovementID(movementID);
+        SendValidatedMovement(udpSocket, *client);
+        movement_mutex.unlock();
+        return;
+    }
+
     client->SetPosition(receivedX, receivedY);
     client->SetLastProcessedMovementID(movementID);
+    client->SetLastMovementTime(currentTime);
 
     SendValidatedMovement(udpSocket, *client);
     BroadcastMovementToOthers(udpSocket, *client);
@@ -352,6 +436,7 @@ void PacketManager::BroadcastMovementToOthers(sf::UdpSocket& udpSocket, const Cl
     std::memcpy(buffer + size, &y, sizeof(y));
     size += sizeof(y);
 
+    udp_mutex.lock();
     for (std::map<unsigned short, Client>::iterator it = clients.begin(); it != clients.end(); it++) {
         Client& target = it->second;
 
@@ -364,8 +449,11 @@ void PacketManager::BroadcastMovementToOthers(sf::UdpSocket& udpSocket, const Cl
         if (!target.HasAddresAndPort())
             continue;
 
-        udpSocket.send(buffer, size, target.GetIpAddress().value(), target.GetPort());
+        if (udpSocket.send(buffer, size, target.GetIpAddress().value(), target.GetPort()) != sf::Socket::Status::Done) {
+            std::cerr << "Error al enviar movimiento validado a cliente id = " << target.GetId() << std::endl;
+        }
     }
+    udp_mutex.unlock();
 }
 
 void PacketManager::Worker()
@@ -402,4 +490,79 @@ void PacketManager::AddTask(std::function<void()> task)
     taskQueue_mutex.lock();
     taskQueue.push(task);
     taskQueue_mutex.unlock();
+}
+
+void PacketManager::RequestMap() {
+    unsigned short localVersion = LoadLocalMapVersion();
+
+    sf::Packet packet;
+    packet << MAP_REQUEST << static_cast<short>(MAP_VERSION_CHECK) << localVersion;
+
+    if (tcpServer->Send(packet) == false) {
+        std::cerr << "Failed to request map" << std::endl;
+    }
+}
+
+void PacketManager::HandleMapRequest(sf::Packet& packet) {
+    short requestTypeValue;
+    packet >> requestTypeValue;
+
+    mapRequestType requestType = static_cast<mapRequestType>(requestTypeValue);
+
+    if (requestType == MAP_UP_TO_DATE) {
+        unsigned short serverVersion;
+        packet >> serverVersion;
+
+        std::cout << "UDP Server map already updated. Version: " << serverVersion << std::endl;
+        return;
+    }
+    else if (requestType == MAP_UPDATE) {
+        unsigned short serverVersion;
+        std::string mapContent;
+
+        packet >> serverVersion >> mapContent;
+
+        SaveLocalMap(mapContent);
+        SaveLocalMapVersion(serverVersion);
+
+        mapLoaded = false;
+        mapLines.clear();
+        LoadMap();
+
+        std::cout << "UDP Server map updated to version: " << serverVersion << std::endl;
+    }
+}
+
+unsigned short PacketManager::LoadLocalMapVersion() {
+    std::ifstream file("resources/Maps/map_version.txt");
+
+    unsigned short version = 0;
+
+    if (file.is_open()) {
+        file >> version;
+    }
+
+    return version;
+}
+
+void PacketManager::SaveLocalMap(const std::string& mapContent) {
+    std::ofstream file("resources/Maps/Map.txt");
+
+    if (!file.is_open()) {
+        std::cerr << "Map file could not be opened" << std::endl;
+        return;
+    }
+
+    file << mapContent;
+}
+
+void PacketManager::SaveLocalMapVersion(unsigned short version) {
+    std::ofstream file("resources/Maps/map_version.txt");
+
+    if (!file.is_open()) {
+        std::cerr << "Map version file could not be opened" << std::endl;
+        return;
+    }
+
+    file << version;
 }

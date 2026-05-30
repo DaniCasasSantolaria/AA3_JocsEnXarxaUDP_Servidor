@@ -18,6 +18,9 @@ private:
     unsigned int lastProcessedMovementID = 0;
     bool hasProcessedMovement = false;
 
+    float lastMovementTime = 0.0f;
+    bool hasMovementTime = false;
+
 public:
     Client()
         : id(0), username(""), address(std::nullopt), port(0) {}
@@ -60,5 +63,13 @@ public:
     inline void SetLastProcessedMovementID(unsigned int newMovementID) {
         lastProcessedMovementID = newMovementID;
         hasProcessedMovement = true;
+    }
+
+    inline float GetLastMovementTime() const { return lastMovementTime; }
+    inline bool HasMovementTime() const { return hasMovementTime; }
+
+    inline void SetLastMovementTime(float time) {
+        lastMovementTime = time;
+        hasMovementTime = true;
     }
 };
