@@ -1,6 +1,5 @@
 #pragma once
 
-#include <string>
 #include <optional>
 #include <SFML/Network.hpp>
 
@@ -29,14 +28,6 @@ public:
 
     inline bool HasAddresAndPort() const {
         return address.has_value() && port != 0;
-    }
-
-    inline void SetAddress(const sf::IpAddress& newAddress) {
-        address = newAddress;
-    }
-
-    inline void SetPort(unsigned short newPort) {
-        port = newPort;
     }
 
     inline bool Connect() {

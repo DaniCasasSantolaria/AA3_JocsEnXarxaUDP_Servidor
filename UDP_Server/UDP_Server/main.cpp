@@ -4,10 +4,9 @@
 #include "TCPServer.h"
 #include <thread>
 
-#define TCP_SERVER_IP sf::IpAddress(10, 8, 0, 3)
+#define TCP_SERVER_IP sf::IpAddress(10, 8, 0, 4)
 #define TCP_SERVER_PORT 55007
 #define UDP_SERVER_PORT 55008
-#define UDP_CLIENT_PORT 55009
 
 int main()
 {
@@ -57,6 +56,8 @@ int main()
     }
 
     while (true) {
+        PM->UpdatePingSystem(udpSocket);
+
         if (!selector.wait(sf::milliseconds(10)))
             continue;
 

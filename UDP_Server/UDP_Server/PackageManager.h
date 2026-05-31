@@ -9,11 +9,11 @@
 #include <mutex>
 #include <functional>
 #include <queue>
+#include <vector>
 #include <SFML/System.hpp>
 
 #define PM PacketManager::Instance()
 
-#define MAX_PLAYERS 2
 #define NUM_MAX_THREADS 5
 
 //TCP Paquetes
@@ -30,18 +30,23 @@ enum packetType {
     MATCH_CREATED
 };
 
-enum matchMode {
-    NON_COMPETITIVE,
-    COMPETITIVE
+enum mapRequestType {
+    MAP_VERSION_CHECK,
+    MAP_UP_TO_DATE,
+    MAP_UPDATE
 };
 
-// UDP_MOVEMENT debe seguir siendo 0 para cuadrar con el cliente actual.
+//UDP Paquetes
 enum udpPacketType {
     MOVEMENT,
     REGISTER_CLIENT,
     SHOOT,
     HIT,
-    PING
+    PING,
+    PONG,
+    DISCONNECTED_PLAYER,
+    IRREGULARITY_WARNING,
+    MATCH_FINISHED
 };
 
 enum movementPacketType {
@@ -49,28 +54,14 @@ enum movementPacketType {
     RECEIVE_VALIDATED_MOVEMENT
 };
 
-enum mapRequestType {
-    MAP_VERSION_CHECK,
-    MAP_UP_TO_DATE,
-    MAP_UPDATE
-};
-
 class PacketManager {
 private:
     TCPServer* tcpServer = nullptr;
 
     std::map<unsigned short, Client> clients;
-    std::map<std::string, unsigned short> endpointToClientId;
 
     std::map<unsigned int, Match> activeMatches;
     std::map<unsigned short, unsigned int> clientToMatchId;
-
-    inline std::string MakeIPKey(const std::string& ip, unsigned short port) {
-        return ip + ":" + std::to_string(port);
-    }
-
-    Client* GetClientByIP(const std::string& ip, unsigned short port);
-    bool RegisterClientIP(unsigned short clientId, const std::string& ip, unsigned short port);
 
     std::queue<std::function<void()>> taskQueue;
 
@@ -79,9 +70,9 @@ private:
 
     //MUTEX
     std::mutex taskQueue_mutex;
-
+    std::mutex clients_mutex;
     std::mutex udp_mutex;
-    std::mutex cosole_mutex;
+    std::mutex console_mutex;
     std::mutex movement_mutex;
 
 
@@ -92,6 +83,11 @@ private:
     bool LoadMap();
     bool IsSolidTile(char tile) const;
     bool IsPositionInsideSolid(float x, float y);
+
+    //Ping Pong
+    const float PING_THRESHOLD = 1.0f;
+    const float PING_INTERVAL = 0.5f;
+    const float TIMEOUT = 2.0f;
 
 
     PacketManager() = default;
@@ -109,22 +105,34 @@ public:
         tcpServer = server;
     }
 
+    //Handlers de paquetes TCP y UDP
     void HandleTCPServerPacket(sf::Packet& packet);
-
     void HandleUDPClientPacket(const char* buffer, std::size_t receivedSize, const sf::IpAddress& senderIP, unsigned short senderPort, sf::UdpSocket& udpSocket);
 
+    //Movimiento
     void HandleUDPMovement(const char* buffer, std::size_t receivedSize, std::size_t readPos, const sf::IpAddress& senderIP, unsigned short senderPort, sf::UdpSocket& udpSocket);
-
     void SendValidatedMovement(sf::UdpSocket& udpSocket, const Client& client);
     void BroadcastMovementToOthers(sf::UdpSocket& udpSocket, const Client& movedClient);
 
+	//Task Queue
     void Worker();
     void AddTask(std::function<void()> task);
 
+    //Mapa
     void RequestMap();
     void HandleMapRequest(sf::Packet& packet);
-
     unsigned short LoadLocalMapVersion();
     void SaveLocalMap(const std::string& mapContent);
     void SaveLocalMapVersion(unsigned short version);
+
+    //Ping
+    void SendPing(sf::UdpSocket& udpSocket, Client& client);
+    void HandlePing(const char* buffer, std::size_t receivedSize, std::size_t readPos, const sf::IpAddress& senderIP, unsigned short senderPort, sf::UdpSocket& udpSocket);
+    void HandlePong(const char* buffer, std::size_t receivedSize, std::size_t readPos);
+    void UpdatePingSystem(sf::UdpSocket& udpSocket);
+    void HandleClientTimeout(unsigned short clientId, sf::UdpSocket& udpSocket);
+
+	//Validaciones de hacks
+    void SendIrregularityWarning(sf::UdpSocket& udpSocket, const Client& client, unsigned int movementID);
+    void FinishMatchByIrregularities(unsigned short loserId, sf::UdpSocket& udpSocket);
 };
