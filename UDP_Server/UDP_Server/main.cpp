@@ -49,6 +49,7 @@ int main()
 
     //THREADS
     std::vector<std::thread> threads;
+    std::thread urgentThread(&PacketManager::UrgentWorker, PM);
 
     for (int i = 0; i < NUM_MAX_THREADS; i++)
     {
@@ -98,6 +99,21 @@ int main()
                         );
                     });
                 }
+ /*               if (PAUQETE URGENT)
+                {
+                    std::vector<char> packetData(buffer, buffer + receivedSize);
+                    sf::IpAddress clientIP = senderIP.value();
+
+                    PM->AddTask([packetData, clientIP, senderPort, &udpSocket]() {
+                        PM->HandleUDPClientPacket(
+                            packetData.data(),
+                            packetData.size(),
+                            clientIP,
+                            senderPort,
+                            udpSocket
+                        );
+                        });
+                }*/
             }
         }
     }

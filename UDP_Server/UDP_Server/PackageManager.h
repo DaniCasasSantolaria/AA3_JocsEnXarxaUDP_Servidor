@@ -63,10 +63,12 @@ private:
     std::map<unsigned int, Match> activeMatches;
     std::map<unsigned short, unsigned int> clientToMatchId;
 
-    std::queue<std::function<void()>> taskQueue;
-
     //Reloj para el movimiento
     sf::Clock movementClock;
+
+    //THREADS QUEUE
+    std::queue<std::function<void()>> taskQueue;
+    std::queue<std::function<void()>> urgentTaskQueue;
 
     //MUTEX
     std::mutex taskQueue_mutex;
@@ -74,6 +76,7 @@ private:
     std::mutex udp_mutex;
     std::mutex console_mutex;
     std::mutex movement_mutex;
+    std::mutex urgentTaskQueue_mutex;
 
 
     //MAPA
@@ -117,6 +120,10 @@ public:
 	//Task Queue
     void Worker();
     void AddTask(std::function<void()> task);
+
+	//Urgent Task Queue
+    void UrgentWorker();
+    void AddUrgentTask(std::function<void()> task);
 
     //Mapa
     void RequestMap();

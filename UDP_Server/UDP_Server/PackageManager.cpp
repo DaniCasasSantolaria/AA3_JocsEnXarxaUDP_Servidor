@@ -316,6 +316,7 @@ void PacketManager::HandleUDPMovement(const char* buffer, std::size_t receivedSi
 
     if (IsPositionInsideSolid(receivedX, receivedY)) {
         client->SetLastProcessedMovementID(movementID);
+        client->SetLastMovementTime(currentTime);
 
         Client correctedClient = *client;
 
@@ -325,7 +326,6 @@ void PacketManager::HandleUDPMovement(const char* buffer, std::size_t receivedSi
 
         movement_mutex.unlock();
 
-        client->SetLastMovementTime(currentTime);
         return;
     }
 
@@ -479,6 +479,9 @@ void PacketManager::Worker()
         if (task)
         {
             task();
+            console_mutex.lock();
+			std::cout << "Task executed in worker thread" << std::endl;
+            console_mutex.unlock();
         }
         else
         {
@@ -492,6 +495,42 @@ void PacketManager::AddTask(std::function<void()> task)
     taskQueue_mutex.lock();
     taskQueue.push(task);
     taskQueue_mutex.unlock();
+}
+
+void PacketManager::UrgentWorker()
+{
+    bool closeThread = false;
+
+    while (!closeThread)
+    {
+        std::function<void()> task;
+
+        urgentTaskQueue_mutex.lock();
+
+        if (!urgentTaskQueue.empty())
+        {
+            task = urgentTaskQueue.front();
+            urgentTaskQueue.pop();
+        }
+
+        urgentTaskQueue_mutex.unlock();
+
+        if (task)
+        {
+            task();
+        }
+        else
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+}
+
+void PacketManager::AddUrgentTask(std::function<void()> task)
+{
+    urgentTaskQueue_mutex.lock();
+    urgentTaskQueue.push(task);
+    urgentTaskQueue_mutex.unlock();
 }
 
 void PacketManager::RequestMap() {
