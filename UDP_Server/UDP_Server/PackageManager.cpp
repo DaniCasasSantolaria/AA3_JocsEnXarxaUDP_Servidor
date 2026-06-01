@@ -4,7 +4,6 @@
 #include <cmath>
 #include <cstring>
 #include <chrono>
-#include <thread>
 #include <fstream>
 
 sf::Packet& operator <<(sf::Packet& packet, packetType type) {
@@ -657,27 +656,27 @@ void PacketManager::Worker()
     {
         std::function<void()> task;
 
-        taskQueue_mutex.lock();
-
-        if (!taskQueue.empty())
         {
-            task = taskQueue.front();
-            taskQueue.pop();
+			//Unique lock obligatorio para usar condition_variable
+            std::unique_lock<std::mutex> lock(taskQueue_mutex);
+
+            taskQueue_cv.wait(lock, [this]() {
+                return !urgentTaskQueue.empty() || !taskQueue.empty();
+                });
+
+            if (!urgentTaskQueue.empty())
+            {
+                task = urgentTaskQueue.front();
+                urgentTaskQueue.pop();
+            }
+            else
+            {
+                task = taskQueue.front();
+                taskQueue.pop();
+            }
         }
 
-        taskQueue_mutex.unlock();
-
-        if (task)
-        {
-            task();
-            console_mutex.lock();
-			std::cout << "Task executed in worker thread" << std::endl;
-            console_mutex.unlock();
-        }
-        else
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
+        task();
     }
 }
 
@@ -686,42 +685,17 @@ void PacketManager::AddTask(std::function<void()> task)
     taskQueue_mutex.lock();
     taskQueue.push(task);
     taskQueue_mutex.unlock();
-}
 
-void PacketManager::UrgentWorker()
-{
-    bool closeThread = false;
-
-    while (!closeThread)
-    {
-        std::function<void()> task;
-
-        urgentTaskQueue_mutex.lock();
-
-        if (!urgentTaskQueue.empty())
-        {
-            task = urgentTaskQueue.front();
-            urgentTaskQueue.pop();
-        }
-
-        urgentTaskQueue_mutex.unlock();
-
-        if (task)
-        {
-            task();
-        }
-        else
-        {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-    }
+    taskQueue_cv.notify_one();
 }
 
 void PacketManager::AddUrgentTask(std::function<void()> task)
 {
-    urgentTaskQueue_mutex.lock();
+    taskQueue_mutex.lock();
     urgentTaskQueue.push(task);
-    urgentTaskQueue_mutex.unlock();
+    taskQueue_mutex.unlock();
+
+    taskQueue_cv.notify_one();
 }
 
 void PacketManager::RequestMap() {
