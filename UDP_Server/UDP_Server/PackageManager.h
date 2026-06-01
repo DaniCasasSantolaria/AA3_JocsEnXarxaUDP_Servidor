@@ -46,12 +46,24 @@ enum udpPacketType {
     PONG,
     DISCONNECTED_PLAYER,
     IRREGULARITY_WARNING,
+    PLAYER_HEALTH_UPDATE,
     MATCH_FINISHED
 };
 
 enum movementPacketType {
     SEND_RAW_MOVEMENT,
     RECEIVE_VALIDATED_MOVEMENT
+};
+
+enum matchFinishReason {
+    FINISH_BY_LIVES,
+    FINISH_BY_DISCONNECT,
+    FINISH_BY_IRREGULARITY
+};
+
+enum matchResult {
+    MATCH_RESULT_LOSE,
+    MATCH_RESULT_WIN
 };
 
 class PacketManager {
@@ -113,9 +125,17 @@ public:
     void HandleUDPClientPacket(const char* buffer, std::size_t receivedSize, const sf::IpAddress& senderIP, unsigned short senderPort, sf::UdpSocket& udpSocket);
 
     //Movimiento
-    void HandleUDPMovement(const char* buffer, std::size_t receivedSize, std::size_t readPos, const sf::IpAddress& senderIP, unsigned short senderPort, sf::UdpSocket& udpSocket);
+    void HandleUDPMovement(const char* buffer, std::size_t receivedSize, std::size_t readPos, const sf::IpAddress& senderIP, unsigned short senderPort, sf::UdpSocket& udpSocket);    
     void SendValidatedMovement(sf::UdpSocket& udpSocket, const Client& client);
     void BroadcastMovementToOthers(sf::UdpSocket& udpSocket, const Client& movedClient);
+
+    //Health
+    void HandlePlayerHealthUpdate(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
+    void SendPlayerHealthUpdate(sf::UdpSocket& udpSocket, const Client& targetClient, unsigned short playerId, short lives, short health);
+    void BroadcastHealthToOthers(sf::UdpSocket& udpSocket, const Client& damagedClient, short lives, short health);
+
+	//Match Finished
+    void SendMatchFinished(sf::UdpSocket& udpSocket, const Client& targetClient, matchResult result, matchFinishReason reason);
 
     //Disparo
     void HandleUDPShoot(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
