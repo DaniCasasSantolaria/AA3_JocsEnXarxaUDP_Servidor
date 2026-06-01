@@ -85,35 +85,39 @@ int main()
 
             while(udpSocket.receive(buffer, sizeof(buffer), receivedSize, senderIP, senderPort) == sf::Socket::Status::Done) {
                 if (senderIP.has_value()) {
-                    
+
                     std::vector<char> packetData(buffer, buffer + receivedSize);
                     sf::IpAddress clientIP = senderIP.value();
 
-                    PM->AddTask([packetData, clientIP, senderPort, &udpSocket]() {
-                        PM->HandleUDPClientPacket(
-                            packetData.data(),
-                            packetData.size(),
-                            clientIP,
-                            senderPort,
-                            udpSocket
-                        );
-                    });
-                }
- /*               if (PAUQETE URGENT)
-                {
-                    std::vector<char> packetData(buffer, buffer + receivedSize);
-                    sf::IpAddress clientIP = senderIP.value();
+                    udpPacketType peekedType = MOVEMENT;
+                    if (packetData.size() >= sizeof(udpPacketType))
+                        std::memcpy(&peekedType, packetData.data(), sizeof(udpPacketType));
 
-                    PM->AddTask([packetData, clientIP, senderPort, &udpSocket]() {
-                        PM->HandleUDPClientPacket(
-                            packetData.data(),
-                            packetData.size(),
-                            clientIP,
-                            senderPort,
-                            udpSocket
-                        );
+                    if (peekedType == SHOOT)
+                    {
+                        PM->AddUrgentTask([packetData, clientIP, senderPort, &udpSocket]() {
+                            PM->HandleUDPClientPacket(
+                                packetData.data(),
+                                packetData.size(),
+                                clientIP,
+                                senderPort,
+                                udpSocket
+                            );
                         });
-                }*/
+                    }
+                    else
+                    {
+                        PM->AddTask([packetData, clientIP, senderPort, &udpSocket]() {
+                            PM->HandleUDPClientPacket(
+                                packetData.data(),
+                                packetData.size(),
+                                clientIP,
+                                senderPort,
+                                udpSocket
+                            );
+                        });
+                    }
+                }
             }
         }
     }

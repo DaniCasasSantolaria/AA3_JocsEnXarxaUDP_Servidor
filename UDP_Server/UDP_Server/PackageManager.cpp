@@ -173,9 +173,7 @@ void PacketManager::HandleUDPClientPacket(const char* buffer, std::size_t receiv
         break;
 
     case SHOOT:
-        console_mutex.lock();
-        std::cout << "UDP_SHOOT recibido" << std::endl;
-        console_mutex.unlock();
+        HandleUDPShoot(buffer, receivedSize, readPos, udpSocket);
         break;
 
     case HIT:
@@ -934,6 +932,51 @@ void PacketManager::SendIrregularityWarning(sf::UdpSocket& udpSocket, const Clie
         console_mutex.unlock();
     }
 
+    udp_mutex.unlock();
+}
+
+void PacketManager::HandleUDPShoot(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket) {
+    if (readPos + sizeof(unsigned short) > receivedSize)
+        return;
+
+    unsigned short shooterNetworkId = 0;
+    std::memcpy(&shooterNetworkId, buffer + readPos, sizeof(shooterNetworkId));
+
+    clients_mutex.lock();
+
+    std::map<unsigned short, unsigned int>::iterator matchIdIt = clientToMatchId.find(shooterNetworkId);
+    if (matchIdIt == clientToMatchId.end()) {
+        clients_mutex.unlock();
+        return;
+    }
+
+    std::map<unsigned int, Match>::iterator matchIt = activeMatches.find(matchIdIt->second);
+    if (matchIt == activeMatches.end()) {
+        clients_mutex.unlock();
+        return;
+    }
+
+    const Match& match = matchIt->second;
+
+    std::vector<Client> targets;
+    for (std::map<unsigned short, Client>::iterator it = clients.begin(); it != clients.end(); it++) {
+        Client& candidate = it->second;
+        if (candidate.GetId() == shooterNetworkId || !match.HasPlayer(candidate.GetId()) || !candidate.HasAddresAndPort() || candidate.IsDisconnected())
+            continue;
+        targets.push_back(candidate);
+    }
+
+    clients_mutex.unlock();
+
+    udp_mutex.lock();
+    for (unsigned int i = 0; i < targets.size(); i++) {
+        Client& target = targets[i];
+        if (udpSocket.send(buffer, receivedSize, target.GetIpAddress().value(), target.GetPort()) != sf::Socket::Status::Done) {
+            console_mutex.lock();
+            std::cerr << "Error enviando SHOOT a cliente id=" << target.GetId() << std::endl;
+            console_mutex.unlock();
+        }
+    }
     udp_mutex.unlock();
 }
 
