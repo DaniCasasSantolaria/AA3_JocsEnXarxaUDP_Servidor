@@ -2,10 +2,11 @@
 #include <iostream>
 #include "PackageManager.h"
 #include "TCPServer.h"
+#include <thread>
 
-#define TCP_SERVER_IP sf::IpAddress(10, 8, 0, 3)
+#define TCP_SERVER_IP sf::IpAddress(10, 8, 0, 4)
 #define TCP_SERVER_PORT 55007
-#define UDP_CLIENT_PORT 55008
+#define UDP_SERVER_PORT 55008
 
 int main()
 {
@@ -35,8 +36,8 @@ int main()
     tcpServer.GetSocket().setBlocking(false);
     selector.add(tcpServer.GetSocket());
 
-    if (udpSocket.bind(UDP_CLIENT_PORT) != sf::Socket::Status::Done) {
-        std::cerr << "Error al bindear UDP en puerto " << UDP_CLIENT_PORT << std::endl;
+    if (udpSocket.bind(UDP_SERVER_PORT) != sf::Socket::Status::Done) {
+        std::cerr << "Error al bindear UDP en puerto " << UDP_SERVER_PORT << std::endl;
         return -1;
     }
 
@@ -44,8 +45,20 @@ int main()
     selector.add(udpSocket);
 
     PM->SetTCPServer(&tcpServer);
+    PM->RequestMap();
+
+    //THREADS
+    std::vector<std::thread> threads;
+    std::thread urgentThread(&PacketManager::UrgentWorker, PM);
+
+    for (int i = 0; i < NUM_MAX_THREADS; i++)
+    {
+        threads.push_back(std::thread(&PacketManager::Worker, PM));
+    }
 
     while (true) {
+        PM->UpdatePingSystem(udpSocket);
+
         if (!selector.wait(sf::milliseconds(10)))
             continue;
 
@@ -70,16 +83,37 @@ int main()
             std::optional<sf::IpAddress> senderIP;
             unsigned short senderPort = 0;
 
-            if (udpSocket.receive(buffer, sizeof(buffer), receivedSize, senderIP, senderPort) == sf::Socket::Status::Done) {
+            while(udpSocket.receive(buffer, sizeof(buffer), receivedSize, senderIP, senderPort) == sf::Socket::Status::Done) {
                 if (senderIP.has_value()) {
-                    PM->HandleUDPClientPacket(
-                        buffer,
-                        receivedSize,
-                        senderIP.value(),
-                        senderPort,
-                        udpSocket
-                    );
+                    
+                    std::vector<char> packetData(buffer, buffer + receivedSize);
+                    sf::IpAddress clientIP = senderIP.value();
+
+                    PM->AddTask([packetData, clientIP, senderPort, &udpSocket]() {
+                        PM->HandleUDPClientPacket(
+                            packetData.data(),
+                            packetData.size(),
+                            clientIP,
+                            senderPort,
+                            udpSocket
+                        );
+                    });
                 }
+ /*               if (PAUQETE URGENT)
+                {
+                    std::vector<char> packetData(buffer, buffer + receivedSize);
+                    sf::IpAddress clientIP = senderIP.value();
+
+                    PM->AddTask([packetData, clientIP, senderPort, &udpSocket]() {
+                        PM->HandleUDPClientPacket(
+                            packetData.data(),
+                            packetData.size(),
+                            clientIP,
+                            senderPort,
+                            udpSocket
+                        );
+                        });
+                }*/
             }
         }
     }
