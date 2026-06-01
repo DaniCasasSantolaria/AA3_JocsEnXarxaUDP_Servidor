@@ -117,6 +117,9 @@ public:
     void SendValidatedMovement(sf::UdpSocket& udpSocket, const Client& client);
     void BroadcastMovementToOthers(sf::UdpSocket& udpSocket, const Client& movedClient);
 
+    //Disparo
+    void HandleUDPShoot(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
+
 	//Task Queue
     void Worker();
     void AddTask(std::function<void()> task);
