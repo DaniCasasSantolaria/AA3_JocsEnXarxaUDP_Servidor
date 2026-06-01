@@ -49,7 +49,6 @@ int main()
 
     //THREADS
     std::vector<std::thread> threads;
-    std::thread urgentThread(&PacketManager::UrgentWorker, PM);
 
     for (int i = 0; i < NUM_MAX_THREADS; i++)
     {

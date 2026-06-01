@@ -11,10 +11,12 @@
 #include <queue>
 #include <vector>
 #include <SFML/System.hpp>
+#include <thread>
+#include <condition_variable>
 
 #define PM PacketManager::Instance()
 
-#define NUM_MAX_THREADS 5
+#define NUM_MAX_THREADS std::thread::hardware_concurrency()
 
 //TCP Paquetes
 enum packetType {
@@ -81,6 +83,7 @@ private:
     //THREADS QUEUE
     std::queue<std::function<void()>> taskQueue;
     std::queue<std::function<void()>> urgentTaskQueue;
+    std::condition_variable taskQueue_cv;
 
     //MUTEX
     std::mutex taskQueue_mutex;
@@ -88,8 +91,6 @@ private:
     std::mutex udp_mutex;
     std::mutex console_mutex;
     std::mutex movement_mutex;
-    std::mutex urgentTaskQueue_mutex;
-
 
     //MAPA
     std::vector<std::string> mapLines;
@@ -148,7 +149,6 @@ public:
     void AddTask(std::function<void()> task);
 
 	//Urgent Task Queue
-    void UrgentWorker();
     void AddUrgentTask(std::function<void()> task);
 
     //Mapa
