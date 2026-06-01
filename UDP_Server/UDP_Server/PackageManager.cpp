@@ -177,9 +177,7 @@ void PacketManager::HandleUDPClientPacket(const char* buffer, std::size_t receiv
         break;
 
     case HIT:
-        console_mutex.lock();
-        std::cout << "UDP_HIT recibido" << std::endl;
-        console_mutex.unlock();
+        HandleUDPHit(buffer, receivedSize, readPos, udpSocket);
         break;
 
     case PLAYER_HEALTH_UPDATE:
@@ -1171,6 +1169,74 @@ void PacketManager::HandleUDPShoot(const char* buffer, std::size_t receivedSize,
         }
     }
     udp_mutex.unlock();
+}
+
+void PacketManager::HandleUDPHit(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket) {
+	if (readPos + sizeof(unsigned short) > receivedSize) return;
+
+	unsigned short shooterId = 0;
+	std::memcpy(&shooterId, buffer + readPos, sizeof(shooterId));
+
+	clients_mutex.lock();
+
+	std::map<unsigned short, unsigned int>::iterator matchIdIt = clientToMatchId.find(shooterId);
+	if (matchIdIt == clientToMatchId.end()) {
+		clients_mutex.unlock();
+		return;
+	}
+
+	std::map<unsigned int, Match>::iterator matchIt = activeMatches.find(matchIdIt->second);
+	if (matchIt == activeMatches.end()) {
+		clients_mutex.unlock();
+		return;
+	}
+
+	const Match& match = matchIt->second;
+
+	unsigned short targetId = 0;
+	bool targetFound = false;
+
+	for (std::map<unsigned short, Client>::iterator it = clients.begin(); it != clients.end(); it++) {
+		if (match.HasPlayer(it->first) && it->first != shooterId) {
+			targetId = it->first;
+			targetFound = true;
+			break;
+		}
+	}
+
+	if (!targetFound) {
+		clients_mutex.unlock();
+		return;
+	}
+
+	std::vector<Client> targets;
+	for (std::map<unsigned short, Client>::iterator it = clients.begin(); it != clients.end(); it++) {
+		if (match.HasPlayer(it->first) && it->second.HasAddresAndPort() && !it->second.IsDisconnected()) {
+			targets.push_back(it->second);
+		}
+	}
+
+	clients_mutex.unlock();
+
+	char outBuffer[1024];
+	std::size_t size = 0;
+
+	udpPacketType packetType = HIT;
+	std::memcpy(outBuffer + size, &packetType, sizeof(packetType));
+	size += sizeof(packetType);
+
+	std::memcpy(outBuffer + size, &targetId, sizeof(targetId));
+	size += sizeof(targetId);
+
+	udp_mutex.lock();
+	for (unsigned int i = 0; i < targets.size(); i++) {
+		if (udpSocket.send(outBuffer, size, targets[i].GetIpAddress().value(), targets[i].GetPort()) != sf::Socket::Status::Done) {
+			console_mutex.lock();
+			std::cerr << "Error enviando HIT_CONFIRMED a cliente id=" << targets[i].GetId() << std::endl;
+			console_mutex.unlock();
+		}
+	}
+	udp_mutex.unlock();
 }
 
 void PacketManager::FinishMatchByIrregularities(unsigned short loserId, sf::UdpSocket& udpSocket) {

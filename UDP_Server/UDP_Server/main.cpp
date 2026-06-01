@@ -93,7 +93,7 @@ int main()
                     if (packetData.size() >= sizeof(udpPacketType))
                         std::memcpy(&peekedType, packetData.data(), sizeof(udpPacketType));
 
-                    if (peekedType == SHOOT)
+                    if (peekedType == SHOOT || peekedType == HIT)
                     {
                         PM->AddUrgentTask([packetData, clientIP, senderPort, &udpSocket]() {
                             PM->HandleUDPClientPacket(

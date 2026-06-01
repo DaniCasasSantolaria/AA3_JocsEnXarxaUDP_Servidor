@@ -140,6 +140,9 @@ public:
     //Disparo
     void HandleUDPShoot(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
 
+    //Golpe
+    void HandleUDPHit(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
+
 	//Task Queue
     void Worker();
     void AddTask(std::function<void()> task);
