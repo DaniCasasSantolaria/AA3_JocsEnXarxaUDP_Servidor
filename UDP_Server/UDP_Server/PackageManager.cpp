@@ -182,6 +182,10 @@ void PacketManager::HandleUDPClientPacket(const char* buffer, std::size_t receiv
         console_mutex.unlock();
         break;
 
+    case PLAYER_HEALTH_UPDATE:
+        HandlePlayerHealthUpdate(buffer, receivedSize, readPos, udpSocket);
+        break;
+
     case PING:
         // Si el cliente hace ping, se responde con un pong
         HandlePing(buffer, receivedSize, readPos, senderIP, senderPort, udpSocket);
@@ -454,6 +458,195 @@ void PacketManager::BroadcastMovementToOthers(sf::UdpSocket& udpSocket, const Cl
     udp_mutex.unlock();
 
     clients_mutex.unlock();
+}
+
+void PacketManager::HandlePlayerHealthUpdate(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket)
+{
+    unsigned short clientId = 0;
+    short lives = 0;
+    short health = 0;
+
+    if (readPos + sizeof(clientId) + sizeof(lives) + sizeof(health) > receivedSize) {
+        return;
+    }
+
+    std::memcpy(&clientId, buffer + readPos, sizeof(clientId));
+    readPos += sizeof(clientId);
+
+    std::memcpy(&lives, buffer + readPos, sizeof(lives));
+    readPos += sizeof(lives);
+
+    std::memcpy(&health, buffer + readPos, sizeof(health));
+    readPos += sizeof(health);
+
+    std::map<unsigned short, Client>::iterator clientIt = clients.find(clientId);
+
+    if (clientIt == clients.end()) {
+        std::cout << "PLAYER_HEALTH_UPDATE de cliente no registrado. id=" << clientId << std::endl;
+        return;
+    }
+
+    Client& damagedClient = clientIt->second;
+
+    std::cout << "PLAYER_HEALTH_UPDATE recibido. ClientId: "
+        << clientId
+        << " Lives: " << lives
+        << " Health: " << health
+        << std::endl;
+
+    BroadcastHealthToOthers(udpSocket, damagedClient, lives, health);
+
+    if (lives > 0) {
+        return;
+    }
+
+    std::map<unsigned short, unsigned int>::iterator matchIdIt = clientToMatchId.find(clientId);
+
+    if (matchIdIt == clientToMatchId.end()) {
+        return;
+    }
+
+    std::map<unsigned int, Match>::iterator matchIt = activeMatches.find(matchIdIt->second);
+
+    if (matchIt == activeMatches.end()) {
+        return;
+    }
+
+    Match& match = matchIt->second;
+
+    unsigned short winnerClientId = match.GetOtherPlayerId(clientId);
+
+    Client& loserClient = clients[clientId];
+    Client& winnerClient = clients[winnerClientId];
+
+    SendMatchFinished(udpSocket, loserClient, MATCH_RESULT_LOSE, FINISH_BY_LIVES);
+    SendMatchFinished(udpSocket, winnerClient, MATCH_RESULT_WIN, FINISH_BY_LIVES);
+
+    clientToMatchId.erase(match.GetPlayer1Id());
+    clientToMatchId.erase(match.GetPlayer2Id());
+    activeMatches.erase(match.GetMatchId());
+}
+
+void PacketManager::SendPlayerHealthUpdate(sf::UdpSocket& udpSocket, const Client& targetClient, unsigned short playerId, short lives, short health)
+{
+    if (!targetClient.HasAddresAndPort()) {
+        return;
+    }
+
+    char buffer[1024];
+    std::size_t size = 0;
+
+    udpPacketType packetType = PLAYER_HEALTH_UPDATE;
+
+    std::memcpy(buffer + size, &packetType, sizeof(packetType));
+    size += sizeof(packetType);
+
+    std::memcpy(buffer + size, &playerId, sizeof(playerId));
+    size += sizeof(playerId);
+
+    std::memcpy(buffer + size, &lives, sizeof(lives));
+    size += sizeof(lives);
+
+    std::memcpy(buffer + size, &health, sizeof(health));
+    size += sizeof(health);
+
+    udp_mutex.lock();
+
+    if (udpSocket.send(buffer, size, targetClient.GetIpAddress().value(), targetClient.GetPort()) != sf::Socket::Status::Done) {
+        std::cerr << "Error al enviar PLAYER_HEALTH_UPDATE a cliente id = "
+            << targetClient.GetId() << std::endl;
+    }
+
+    udp_mutex.unlock();
+}
+
+void PacketManager::BroadcastHealthToOthers(sf::UdpSocket& udpSocket, const Client& damagedClient, short lives, short health)
+{
+    std::map<unsigned short, unsigned int>::iterator matchIdIt = clientToMatchId.find(damagedClient.GetId());
+
+    if (matchIdIt == clientToMatchId.end())
+        return;
+
+    std::map<unsigned int, Match>::iterator matchIt = activeMatches.find(matchIdIt->second);
+
+    if (matchIt == activeMatches.end())
+        return;
+
+    const Match& match = matchIt->second;
+
+    char buffer[1024];
+    std::size_t size = 0;
+
+    udpPacketType packetType = PLAYER_HEALTH_UPDATE;
+
+    unsigned short clientId = damagedClient.GetId();
+
+    std::memcpy(buffer + size, &packetType, sizeof(packetType));
+    size += sizeof(packetType);
+
+    std::memcpy(buffer + size, &clientId, sizeof(clientId));
+    size += sizeof(clientId);
+
+    std::memcpy(buffer + size, &lives, sizeof(lives));
+    size += sizeof(lives);
+
+    std::memcpy(buffer + size, &health, sizeof(health));
+    size += sizeof(health);
+
+    udp_mutex.lock();
+
+    for (std::map<unsigned short, Client>::iterator it = clients.begin(); it != clients.end(); it++) {
+        Client& target = it->second;
+
+        if (target.GetId() == damagedClient.GetId())
+            continue;
+
+        if (!match.HasPlayer(target.GetId()))
+            continue;
+
+        if (!target.HasAddresAndPort())
+            continue;
+
+        if (udpSocket.send(buffer, size, target.GetIpAddress().value(), target.GetPort()) != sf::Socket::Status::Done) {
+            std::cerr << "Error al enviar PLAYER_HEALTH_UPDATE a cliente id = "
+                << target.GetId() << std::endl;
+        }
+    }
+
+    udp_mutex.unlock();
+}
+
+void PacketManager::SendMatchFinished(sf::UdpSocket& udpSocket, const Client& targetClient, matchResult result, matchFinishReason reason)
+{
+    if (!targetClient.HasAddresAndPort()) {
+        return;
+    }
+
+    char buffer[1024];
+    std::size_t size = 0;
+
+    udpPacketType packetType = MATCH_FINISHED;
+
+    unsigned short resultValue = static_cast<unsigned short>(result);
+    unsigned short reasonValue = static_cast<unsigned short>(reason);
+
+    std::memcpy(buffer + size, &packetType, sizeof(packetType));
+    size += sizeof(packetType);
+
+    std::memcpy(buffer + size, &resultValue, sizeof(resultValue));
+    size += sizeof(resultValue);
+
+    std::memcpy(buffer + size, &reasonValue, sizeof(reasonValue));
+    size += sizeof(reasonValue);
+
+    udp_mutex.lock();
+
+    if (udpSocket.send(buffer, size, targetClient.GetIpAddress().value(), targetClient.GetPort()) != sf::Socket::Status::Done)
+    {
+        std::cerr << "Error al enviar resultado de partida a cliente id = " << targetClient.GetId() << std::endl;
+    }
+
+    udp_mutex.unlock();
 }
 
 void PacketManager::Worker()
