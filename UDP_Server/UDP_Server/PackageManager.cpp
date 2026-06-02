@@ -179,6 +179,10 @@ void PacketManager::HandleUDPClientPacket(const char* buffer, std::size_t receiv
         HandleUDPHit(buffer, receivedSize, readPos, udpSocket);
         break;
 
+	case TAUNT:
+        HandleUDPTaunt(buffer, receivedSize, readPos, udpSocket);
+		break;
+
     case PLAYER_HEALTH_UPDATE:
         HandlePlayerHealthUpdate(buffer, receivedSize, readPos, udpSocket);
         break;
@@ -524,39 +528,6 @@ void PacketManager::HandlePlayerHealthUpdate(const char* buffer, std::size_t rec
     activeMatches.erase(match.GetMatchId());
 }
 
-void PacketManager::SendPlayerHealthUpdate(sf::UdpSocket& udpSocket, const Client& targetClient, unsigned short playerId, short lives, short health)
-{
-    if (!targetClient.HasAddresAndPort()) {
-        return;
-    }
-
-    char buffer[1024];
-    std::size_t size = 0;
-
-    udpPacketType packetType = PLAYER_HEALTH_UPDATE;
-
-    std::memcpy(buffer + size, &packetType, sizeof(packetType));
-    size += sizeof(packetType);
-
-    std::memcpy(buffer + size, &playerId, sizeof(playerId));
-    size += sizeof(playerId);
-
-    std::memcpy(buffer + size, &lives, sizeof(lives));
-    size += sizeof(lives);
-
-    std::memcpy(buffer + size, &health, sizeof(health));
-    size += sizeof(health);
-
-    udp_mutex.lock();
-
-    if (udpSocket.send(buffer, size, targetClient.GetIpAddress().value(), targetClient.GetPort()) != sf::Socket::Status::Done) {
-        std::cerr << "Error al enviar PLAYER_HEALTH_UPDATE a cliente id = "
-            << targetClient.GetId() << std::endl;
-    }
-
-    udp_mutex.unlock();
-}
-
 void PacketManager::BroadcastHealthToOthers(sf::UdpSocket& udpSocket, const Client& damagedClient, short lives, short health)
 {
     std::map<unsigned short, unsigned int>::iterator matchIdIt = clientToMatchId.find(damagedClient.GetId());
@@ -824,8 +795,6 @@ void PacketManager::SendPing(sf::UdpSocket& udpSocket, Client& client) {
 }
 
 void PacketManager::HandlePing(const char* buffer, std::size_t receivedSize, std::size_t readPos, const sf::IpAddress& senderIP, unsigned short senderPort, sf::UdpSocket& udpSocket) {
-    if (readPos + sizeof(unsigned short) + sizeof(unsigned int) > receivedSize)
-        return;
 
     unsigned short clientId = 0;
     unsigned int pingId = 0;
@@ -882,8 +851,6 @@ void PacketManager::HandlePing(const char* buffer, std::size_t receivedSize, std
 }
 
 void PacketManager::HandlePong(const char* buffer, std::size_t receivedSize, std::size_t readPos) {
-    if (readPos + sizeof(unsigned short) + sizeof(unsigned int) > receivedSize)
-        return;
 
     unsigned short clientId = 0;
     unsigned int pingId = 0;
@@ -921,8 +888,6 @@ void PacketManager::HandlePong(const char* buffer, std::size_t receivedSize, std
     std::cout << "PONG recibido de cliente id=" << clientId << " pingId=" << pingId << std::endl;
     console_mutex.unlock();
 }
-
-
 
 void PacketManager::UpdatePingSystem(sf::UdpSocket& udpSocket) {
     float currentTime = movementClock.getElapsedTime().asSeconds();
@@ -1056,7 +1021,6 @@ void PacketManager::HandleClientTimeout(unsigned short clientId, sf::UdpSocket& 
     }
 }
 
-
 void PacketManager::SendIrregularityWarning(sf::UdpSocket& udpSocket, const Client& client, unsigned int movementID) {
     if (!client.HasAddresAndPort())
         return;
@@ -1101,8 +1065,6 @@ void PacketManager::SendIrregularityWarning(sf::UdpSocket& udpSocket, const Clie
 }
 
 void PacketManager::HandleUDPShoot(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket) {
-    if (readPos + sizeof(unsigned short) > receivedSize)
-        return;
 
     unsigned short shooterNetworkId = 0;
     std::memcpy(&shooterNetworkId, buffer + readPos, sizeof(shooterNetworkId));
@@ -1134,7 +1096,7 @@ void PacketManager::HandleUDPShoot(const char* buffer, std::size_t receivedSize,
     clients_mutex.unlock();
 
     udp_mutex.lock();
-    for (unsigned int i = 0; i < targets.size(); i++) {
+    for (unsigned short i = 0; i < targets.size(); i++) {
         Client& target = targets[i];
         if (udpSocket.send(buffer, receivedSize, target.GetIpAddress().value(), target.GetPort()) != sf::Socket::Status::Done) {
             console_mutex.lock();
@@ -1146,9 +1108,8 @@ void PacketManager::HandleUDPShoot(const char* buffer, std::size_t receivedSize,
 }
 
 void PacketManager::HandleUDPHit(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket) {
-	if (readPos + sizeof(unsigned short) > receivedSize) return;
 
-	unsigned short shooterId = 0;
+    unsigned short shooterId = 0;
 	std::memcpy(&shooterId, buffer + readPos, sizeof(shooterId));
 
 	clients_mutex.lock();
@@ -1211,6 +1172,110 @@ void PacketManager::HandleUDPHit(const char* buffer, std::size_t receivedSize, s
 		}
 	}
 	udp_mutex.unlock();
+}
+
+void PacketManager::HandleUDPTaunt(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket)
+{
+    unsigned short clientId = 0;
+	unsigned int tauntId = 0;
+
+    std::memcpy(&clientId, buffer + readPos, sizeof(clientId));
+    readPos += sizeof(clientId);
+
+    std::memcpy(&tauntId, buffer + readPos, sizeof(tauntId));
+    readPos += sizeof(tauntId);
+
+    console_mutex.lock();
+	std::cout << "Taunt recibido de cliente id=" << clientId << " tauntId=" << tauntId << std::endl;
+    console_mutex.unlock();
+
+
+    clients_mutex.lock();
+
+    std::map<unsigned short, Client>::iterator clientIt = clients.find(clientId);
+    if (clientIt == clients.end()) {
+        clients_mutex.unlock();
+        return;
+    }
+
+    Client tauntingClient = clientIt->second;
+
+    clients_mutex.unlock();
+
+    BroadcastTauntToOthers(udpSocket, tauntingClient, tauntId);
+}
+
+void PacketManager::BroadcastTauntToOthers(sf::UdpSocket& udpSocket, const Client& tauntingClient, unsigned int tauntId)
+{
+    clients_mutex.lock();
+
+    std::map<unsigned short, unsigned int>::iterator matchIdIt = clientToMatchId.find(tauntingClient.GetId());
+
+    if (matchIdIt == clientToMatchId.end()) 
+    {
+        clients_mutex.unlock();
+        return;
+    }
+
+    std::map<unsigned int, Match>::iterator matchIt = activeMatches.find(matchIdIt->second);
+
+    if (matchIt == activeMatches.end()) 
+    {
+        clients_mutex.unlock();
+        return;
+    }
+
+    const Match& match = matchIt->second;
+
+    std::vector<Client> targets;
+
+    for (std::map<unsigned short, Client>::iterator it = clients.begin(); it != clients.end(); it++) 
+    {
+        Client& target = it->second;
+
+        if (target.GetId() == tauntingClient.GetId())
+            continue;
+
+        if (!match.HasPlayer(target.GetId()))
+            continue;
+
+        if (!target.HasAddresAndPort())
+            continue;
+
+        if (target.IsDisconnected())
+            continue;
+
+        targets.push_back(target);
+    }
+
+    clients_mutex.unlock();
+
+    char buffer[1024];
+    std::size_t size = 0;
+
+    udpPacketType packetType = TAUNT;
+    unsigned short clientId = tauntingClient.GetId();
+
+    std::memcpy(buffer + size, &packetType, sizeof(packetType));
+    size += sizeof(packetType);
+
+    std::memcpy(buffer + size, &clientId, sizeof(clientId));
+    size += sizeof(clientId);
+
+    std::memcpy(buffer + size, &tauntId, sizeof(tauntId));
+    size += sizeof(tauntId);
+
+    udp_mutex.lock();
+
+    for (unsigned short i = 0; i < targets.size(); i++) {
+        if (udpSocket.send(buffer, size, targets[i].GetIpAddress().value(), targets[i].GetPort()) != sf::Socket::Status::Done) {
+            console_mutex.lock();
+            std::cerr << "Error enviando TAUNT a cliente id=" << targets[i].GetId() << std::endl;
+            console_mutex.unlock();
+        }
+    }
+
+    udp_mutex.unlock();
 }
 
 void PacketManager::FinishMatchByIrregularities(unsigned short loserId, sf::UdpSocket& udpSocket) {

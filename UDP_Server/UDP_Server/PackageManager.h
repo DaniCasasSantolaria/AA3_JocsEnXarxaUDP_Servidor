@@ -44,6 +44,7 @@ enum udpPacketType {
     REGISTER_CLIENT,
     SHOOT,
     HIT,
+    TAUNT,
     PING,
     PONG,
     DISCONNECTED_PLAYER,
@@ -132,7 +133,6 @@ public:
 
     //Health
     void HandlePlayerHealthUpdate(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
-    void SendPlayerHealthUpdate(sf::UdpSocket& udpSocket, const Client& targetClient, unsigned short playerId, short lives, short health);
     void BroadcastHealthToOthers(sf::UdpSocket& udpSocket, const Client& damagedClient, short lives, short health);
 
 	//Match Finished
@@ -143,6 +143,10 @@ public:
 
     //Golpe
     void HandleUDPHit(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
+
+    //Burla
+	void HandleUDPTaunt(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
+    void BroadcastTauntToOthers(sf::UdpSocket& udpSocket, const Client& tauntingClient, unsigned int tauntId);
 
 	//Task Queue
     void Worker();
