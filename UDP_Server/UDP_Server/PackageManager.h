@@ -50,7 +50,9 @@ enum udpPacketType {
     DISCONNECTED_PLAYER,
     IRREGULARITY_WARNING,
     PLAYER_HEALTH_UPDATE,
-    MATCH_FINISHED
+    MATCH_FINISHED,
+    SHOOT_ACK,
+    SHOOT_CONFIRMED
 };
 
 enum movementPacketType {
@@ -86,12 +88,25 @@ private:
     std::queue<std::function<void()>> urgentTaskQueue;
     std::condition_variable taskQueue_cv;
 
+    struct CriticalDelivery {
+        unsigned short criticalPacketId;
+        std::vector<char> packetData;
+        unsigned short targetClientId;
+        unsigned short shooterClientId;
+        float lastSendTime;
+        float firstSendTime;
+    };
+
+    std::map<unsigned short, CriticalDelivery> pendingCriticalDeliveries;
+    unsigned short criticalPacketIdCounter = 0;
+
     //MUTEX
     std::mutex taskQueue_mutex;
     std::mutex clients_mutex;
     std::mutex udp_mutex;
     std::mutex console_mutex;
     std::mutex movement_mutex;
+    std::mutex criticalDeliveries_mutex;
 
     //MAPA
     std::vector<std::string> mapLines;
@@ -127,7 +142,7 @@ public:
     void HandleUDPClientPacket(const char* buffer, std::size_t receivedSize, const sf::IpAddress& senderIP, unsigned short senderPort, sf::UdpSocket& udpSocket);
 
     //Movimiento
-    void HandleUDPMovement(const char* buffer, std::size_t receivedSize, std::size_t readPos, const sf::IpAddress& senderIP, unsigned short senderPort, sf::UdpSocket& udpSocket);    
+    void HandleUDPMovement(const char* buffer, std::size_t receivedSize, std::size_t readPos, const sf::IpAddress& senderIP, unsigned short senderPort, sf::UdpSocket& udpSocket);
     void SendValidatedMovement(sf::UdpSocket& udpSocket, const Client& client);
     void BroadcastMovementToOthers(sf::UdpSocket& udpSocket, const Client& movedClient);
 
@@ -140,6 +155,9 @@ public:
 
     //Disparo
     void HandleUDPShoot(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
+    void HandleShootAck(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
+    void SendShootConfirmed(sf::UdpSocket& udpSocket, unsigned short shooterClientId);
+    void ResendCriticalPackets(sf::UdpSocket& udpSocket);
 
     //Golpe
     void HandleUDPHit(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
@@ -151,8 +169,6 @@ public:
 	//Task Queue
     void Worker();
     void AddTask(std::function<void()> task);
-
-	//Urgent Task Queue
     void AddUrgentTask(std::function<void()> task);
 
     //Mapa

@@ -57,6 +57,7 @@ int main()
 
     while (true) {
         PM->UpdatePingSystem(udpSocket);
+        PM->ResendCriticalPackets(udpSocket);
 
         if (!selector.wait(sf::milliseconds(10)))
             continue;
@@ -92,7 +93,7 @@ int main()
                     if (packetData.size() >= sizeof(udpPacketType))
                         std::memcpy(&peekedType, packetData.data(), sizeof(udpPacketType));
 
-                    if (peekedType == SHOOT || peekedType == HIT)
+                    if (peekedType == SHOOT || peekedType == SHOOT_ACK || peekedType == HIT)
                     {
                         PM->AddUrgentTask([packetData, clientIP, senderPort, &udpSocket]() {
                             PM->HandleUDPClientPacket(

@@ -175,6 +175,10 @@ void PacketManager::HandleUDPClientPacket(const char* buffer, std::size_t receiv
         HandleUDPShoot(buffer, receivedSize, readPos, udpSocket);
         break;
 
+    case SHOOT_ACK:
+        HandleShootAck(buffer, receivedSize, readPos, udpSocket);
+        break;
+
     case HIT:
         HandleUDPHit(buffer, receivedSize, readPos, udpSocket);
         break;
@@ -188,12 +192,10 @@ void PacketManager::HandleUDPClientPacket(const char* buffer, std::size_t receiv
         break;
 
     case PING:
-        // Si el cliente hace ping, se responde con un pong
         HandlePing(buffer, receivedSize, readPos, senderIP, senderPort, udpSocket);
         break;
 
     case PONG:
-		// Si el cliente responde a un ping, se actualiza su estado
         HandlePong(buffer, receivedSize, readPos);
         break;
 
@@ -1067,7 +1069,12 @@ void PacketManager::SendIrregularityWarning(sf::UdpSocket& udpSocket, const Clie
 void PacketManager::HandleUDPShoot(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket) {
 
     unsigned short shooterNetworkId = 0;
+
+    if (readPos + sizeof(shooterNetworkId) > receivedSize)
+        return;
+
     std::memcpy(&shooterNetworkId, buffer + readPos, sizeof(shooterNetworkId));
+    readPos += sizeof(shooterNetworkId);
 
     clients_mutex.lock();
 
@@ -1095,16 +1102,172 @@ void PacketManager::HandleUDPShoot(const char* buffer, std::size_t receivedSize,
 
     clients_mutex.unlock();
 
-    udp_mutex.lock();
+    float currentTime = movementClock.getElapsedTime().asSeconds();
+
     for (unsigned short i = 0; i < targets.size(); i++) {
-        Client& target = targets[i];
-        if (udpSocket.send(buffer, receivedSize, target.GetIpAddress().value(), target.GetPort()) != sf::Socket::Status::Done) {
+        criticalDeliveries_mutex.lock();
+        unsigned short criticalPacketId = criticalPacketIdCounter++;
+        criticalDeliveries_mutex.unlock();
+
+        char outBuffer[1024];
+        std::size_t outSize = 0;
+
+        udpPacketType pktType = SHOOT;
+        std::memcpy(outBuffer + outSize, &pktType, sizeof(pktType));
+        outSize += sizeof(pktType);
+
+        std::memcpy(outBuffer + outSize, &shooterNetworkId, sizeof(shooterNetworkId));
+        outSize += sizeof(shooterNetworkId);
+
+        std::memcpy(outBuffer + outSize, &criticalPacketId, sizeof(criticalPacketId));
+        outSize += sizeof(criticalPacketId);
+
+        CriticalDelivery delivery;
+        delivery.criticalPacketId = criticalPacketId;
+        delivery.packetData = std::vector<char>(outBuffer, outBuffer + outSize);
+        delivery.targetClientId = targets[i].GetId();
+        delivery.shooterClientId = shooterNetworkId;
+        delivery.lastSendTime = currentTime;
+        delivery.firstSendTime = currentTime;
+
+        criticalDeliveries_mutex.lock();
+        pendingCriticalDeliveries[criticalPacketId] = delivery;
+        criticalDeliveries_mutex.unlock();
+
+        udp_mutex.lock();
+        if (udpSocket.send(outBuffer, outSize, targets[i].GetIpAddress().value(), targets[i].GetPort()) != sf::Socket::Status::Done) {
             console_mutex.lock();
-            std::cerr << "Error enviando SHOOT a cliente id=" << target.GetId() << std::endl;
+            std::cerr << "Error enviando SHOOT a cliente id=" << targets[i].GetId() << std::endl;
             console_mutex.unlock();
         }
+        udp_mutex.unlock();
+    }
+}
+
+void PacketManager::HandleShootAck(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket) {
+    unsigned short clientId = 0;
+    unsigned short criticalPacketId = 0;
+
+    if (readPos + sizeof(clientId) + sizeof(criticalPacketId) > receivedSize)
+        return;
+
+    std::memcpy(&clientId, buffer + readPos, sizeof(clientId));
+    readPos += sizeof(clientId);
+
+    std::memcpy(&criticalPacketId, buffer + readPos, sizeof(criticalPacketId));
+    readPos += sizeof(criticalPacketId);
+
+    unsigned short shooterClientId = 0;
+    bool allDelivered = false;
+
+    criticalDeliveries_mutex.lock();
+
+    std::map<unsigned short, CriticalDelivery>::iterator it = pendingCriticalDeliveries.find(criticalPacketId);
+    if (it != pendingCriticalDeliveries.end()) {
+        shooterClientId = it->second.shooterClientId;
+        pendingCriticalDeliveries.erase(it);
+
+        allDelivered = true;
+        for (std::map<unsigned short, CriticalDelivery>::iterator pending = pendingCriticalDeliveries.begin(); pending != pendingCriticalDeliveries.end(); pending++) {
+            if (pending->second.shooterClientId == shooterClientId) {
+                allDelivered = false;
+                break;
+            }
+        }
+    }
+
+    criticalDeliveries_mutex.unlock();
+
+    console_mutex.lock();
+    std::cout << "Bala entregada al cliente id=" << clientId << " criticalPacketId=" << criticalPacketId << std::endl;
+    console_mutex.unlock();
+
+    if (allDelivered && shooterClientId != 0) {
+        SendShootConfirmed(udpSocket, shooterClientId);
+    }
+}
+
+void PacketManager::SendShootConfirmed(sf::UdpSocket& udpSocket, unsigned short shooterClientId) {
+    clients_mutex.lock();
+
+    std::map<unsigned short, Client>::iterator clientIt = clients.find(shooterClientId);
+    if (clientIt == clients.end() || !clientIt->second.HasAddresAndPort() || clientIt->second.IsDisconnected()) {
+        clients_mutex.unlock();
+        return;
+    }
+
+    sf::IpAddress targetIp = clientIt->second.GetIpAddress().value();
+    unsigned short targetPort = clientIt->second.GetPort();
+
+    clients_mutex.unlock();
+
+    char outBuffer[64];
+    std::size_t outSize = 0;
+
+    udpPacketType pktType = SHOOT_CONFIRMED;
+    std::memcpy(outBuffer + outSize, &pktType, sizeof(pktType));
+    outSize += sizeof(pktType);
+
+    std::memcpy(outBuffer + outSize, &shooterClientId, sizeof(shooterClientId));
+    outSize += sizeof(shooterClientId);
+
+    udp_mutex.lock();
+    if (udpSocket.send(outBuffer, outSize, targetIp, targetPort) != sf::Socket::Status::Done) {
+        console_mutex.lock();
+        std::cerr << "Error enviando SHOOT_CONFIRMED a cliente id=" << shooterClientId << std::endl;
+        console_mutex.unlock();
     }
     udp_mutex.unlock();
+
+    console_mutex.lock();
+    std::cout << "SHOOT_CONFIRMED enviado al cliente id=" << shooterClientId << std::endl;
+    console_mutex.unlock();
+}
+
+void PacketManager::ResendCriticalPackets(sf::UdpSocket& udpSocket) {
+    const float resendInterval = 0.1f;
+    const float giveUpAfter = 5.0f;
+
+    float currentTime = movementClock.getElapsedTime().asSeconds();
+
+    criticalDeliveries_mutex.lock();
+
+    std::vector<unsigned short> toRemove;
+
+    for (std::map<unsigned short, CriticalDelivery>::iterator it = pendingCriticalDeliveries.begin(); it != pendingCriticalDeliveries.end(); it++) {
+        CriticalDelivery& delivery = it->second;
+
+        if (currentTime - delivery.firstSendTime > giveUpAfter) {
+            toRemove.push_back(it->first);
+            continue;
+        }
+
+        if (currentTime - delivery.lastSendTime < resendInterval)
+            continue;
+
+        clients_mutex.lock();
+        std::map<unsigned short, Client>::iterator clientIt = clients.find(delivery.targetClientId);
+        if (clientIt == clients.end() || !clientIt->second.HasAddresAndPort() || clientIt->second.IsDisconnected()) {
+            clients_mutex.unlock();
+            toRemove.push_back(it->first);
+            continue;
+        }
+        sf::IpAddress targetIp = clientIt->second.GetIpAddress().value();
+        unsigned short targetPort = clientIt->second.GetPort();
+        clients_mutex.unlock();
+
+        udp_mutex.lock();
+        udpSocket.send(delivery.packetData.data(), delivery.packetData.size(), targetIp, targetPort);
+        udp_mutex.unlock();
+
+        delivery.lastSendTime = currentTime;
+    }
+
+    for (unsigned short i = 0; i < toRemove.size(); i++) {
+        pendingCriticalDeliveries.erase(toRemove[i]);
+    }
+
+    criticalDeliveries_mutex.unlock();
 }
 
 void PacketManager::HandleUDPHit(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket) {
