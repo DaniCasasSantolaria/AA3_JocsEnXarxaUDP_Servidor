@@ -121,7 +121,7 @@ void PacketManager::HandleTCPServerPacket(sf::Packet& packet) {
         std::cout << "P2: id=" << p2Id << " username=" << p2Username << std::endl;
         console_mutex.unlock();
 
-        Match match(p1Id, p2Id);
+        Match match(matchId, modeValue, p1Id, p1Username, p2Id, p2Username);
 
         clients_mutex.lock();
         clients[p1Id] = Client(p1Id);
@@ -524,12 +524,19 @@ void PacketManager::HandlePlayerHealthUpdate(const char* buffer, std::size_t rec
     Match& match = matchIt->second;
 
     unsigned short winnerClientId = match.GetOtherPlayerId(clientId);
+    std::string winnerUsername = match.GetUsernameById(winnerClientId);
 
     Client& loserClient = clients[clientId];
     Client& winnerClient = clients[winnerClientId];
 
     SendMatchFinished(udpSocket, loserClient, MATCH_RESULT_LOSE, FINISH_BY_LIVES);
     SendMatchFinished(udpSocket, winnerClient, MATCH_RESULT_WIN, FINISH_BY_LIVES);
+
+    if (tcpServer != nullptr) {
+        sf::Packet packet;
+        packet << GAME_RESULT << winnerClientId << winnerUsername;
+        tcpServer->Send(packet);
+    }
 
     clientToMatchId.erase(match.GetPlayer1Id());
     clientToMatchId.erase(match.GetPlayer2Id());
@@ -967,6 +974,9 @@ void PacketManager::HandleClientTimeout(unsigned short clientId, sf::UdpSocket& 
 
     Match& match = matchIt->second;
 
+    unsigned short winnerId = match.GetOtherPlayerId(clientId);
+    std::string winnerUsername = match.GetUsernameById(winnerId);
+
     char buffer[BUFFER_SIZE];
     std::size_t size = 0;
 
@@ -1017,9 +1027,9 @@ void PacketManager::HandleClientTimeout(unsigned short clientId, sf::UdpSocket& 
 
     udp_mutex.unlock();
 
-    if (tcpServer != nullptr) {
+    if (tcpServer != nullptr && !winnerUsername.empty()) {
         sf::Packet packet;
-        packet << GAME_RESULT << clientId;
+        packet << GAME_RESULT << winnerId << winnerUsername;
         tcpServer->Send(packet);
     }
 }
@@ -1452,34 +1462,33 @@ void PacketManager::FinishMatchByIrregularities(unsigned short loserId, sf::UdpS
 
     Match match = matchIt->second;
 
-    char buffer[BUFFER_SIZE];
-    std::size_t size = 0;
+    unsigned short winnerId = match.GetOtherPlayerId(loserId);
+    std::string winnerUsername = match.GetUsernameById(winnerId);
 
-    udpPacketType packetType = MATCH_FINISHED;
-    matchFinishReason reason = FINISH_BY_IRREGULARITY;
-    unsigned short loserClientId = loserId;
+    Client loserClient;
+    Client winnerClient;
 
-    WriteUdpHeader(buffer, size, URGENT_PACKET | CRITIC_PACKET, packetType);
+    bool hasLoserClient = false;
+    bool hasWinnerClient = false;
 
-    std::memcpy(buffer + size, &loserClientId, sizeof(loserClientId));
-    size += sizeof(loserClientId);
-
-    std::memcpy(buffer + size, &reason, sizeof(reason));
-    size += sizeof(reason);
-
-    std::vector<Client> targets;
     std::vector<unsigned short> clientsToErase;
 
     for (std::map<unsigned short, Client>::iterator it = clients.begin(); it != clients.end(); it++) {
         Client& target = it->second;
 
-        if (!match.HasPlayer(target.GetId()))
+        if (!match.HasPlayer(target.GetId())) {
             continue;
+        }
 
         clientsToErase.push_back(target.GetId());
 
-        if (target.HasAddresAndPort() && !target.IsDisconnected()) {
-            targets.push_back(target);
+        if (target.GetId() == loserId) {
+            loserClient = target;
+            hasLoserClient = true;
+        }
+        else if (target.GetId() == winnerId) {
+            winnerClient = target;
+            hasWinnerClient = true;
         }
     }
 
@@ -1500,27 +1509,25 @@ void PacketManager::FinishMatchByIrregularities(unsigned short loserId, sf::UdpS
 
     clients_mutex.unlock();
 
-    udp_mutex.lock();
-
-    for (unsigned int i = 0; i < targets.size(); i++) {
-        Client& target = targets[i];
-
-        if (udpSocket.send(buffer, size, target.GetIpAddress().value(), target.GetPort()) != sf::Socket::Status::Done) {
-            console_mutex.lock();
-            std::cerr << "Error enviando MATCH_FINISHED a cliente id=" << target.GetId() << std::endl;
-            console_mutex.unlock();
-        }
+    if (hasLoserClient && loserClient.HasAddresAndPort() && !loserClient.IsDisconnected()) {
+        SendMatchFinished(udpSocket, loserClient, MATCH_RESULT_LOSE, FINISH_BY_IRREGULARITY);
     }
 
-    udp_mutex.unlock();
+    if (hasWinnerClient && winnerClient.HasAddresAndPort() && !winnerClient.IsDisconnected()) {
+        SendMatchFinished(udpSocket, winnerClient, MATCH_RESULT_WIN, FINISH_BY_IRREGULARITY);
+    }
 
-    console_mutex.lock();
-    std::cout << "Partida finalizada por irregularidades. Perdedor id=" << loserId << std::endl;
-    console_mutex.unlock();
-
-    if (tcpServer != nullptr) {
+    if (tcpServer != nullptr && !winnerUsername.empty()) {
         sf::Packet packet;
-        packet << GAME_RESULT << loserId;
+        packet << GAME_RESULT << winnerId << winnerUsername;
         tcpServer->Send(packet);
     }
+
+    console_mutex.lock();
+    std::cout << "Partida finalizada por irregularidades."
+        << " Perdedor id=" << loserId
+        << " | Ganador id=" << winnerId
+        << " | Ganador username=" << winnerUsername
+        << std::endl;
+    console_mutex.unlock();
 }
