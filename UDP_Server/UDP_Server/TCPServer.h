@@ -1,10 +1,8 @@
 #pragma once
-
 #include <optional>
 #include <SFML/Network.hpp>
 
-class TCPServer
-{
+class TCPServer {
 private:
     sf::TcpSocket socket;
 
@@ -15,12 +13,10 @@ private:
 
 public:
     TCPServer()
-        : address(std::nullopt), port(0), connected(false) {
-    }
+        : address(std::nullopt), port(0), connected(false) {}
 
     TCPServer(const sf::IpAddress& address, unsigned short port)
-        : address(address), port(port), connected(false) {
-    }
+        : address(address), port(port), connected(false) {}
 
     inline sf::TcpSocket& GetSocket() { return socket; }
 

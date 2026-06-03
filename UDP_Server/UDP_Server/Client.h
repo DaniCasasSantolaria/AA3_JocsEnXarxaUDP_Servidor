@@ -3,8 +3,7 @@
 #include <optional>
 #include <SFML/Network.hpp>
 
-class Client
-{
+class Client {
 private:
     unsigned short id;
 
@@ -83,12 +82,6 @@ public:
 
 	//Validación de hacks
     inline unsigned short GetIrregularityCount() const { return irregularityCount; }
-
-    inline void AddIrregularity() {
-        irregularityCount++;
-    }
-
-    inline void ResetIrregularities() {
-        irregularityCount = 0;
-    }
+    inline void AddIrregularity() { irregularityCount++; }
+    inline void ResetIrregularities() { irregularityCount = 0; }
 };

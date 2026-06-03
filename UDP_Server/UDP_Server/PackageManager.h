@@ -1,5 +1,4 @@
 #pragma once
-
 #include <SFML/Network.hpp>
 #include <map>
 #include <string>
@@ -24,9 +23,6 @@
 #define CRITIC_PACKET 0b00000010
 
 #define BUFFER_SIZE 1024
-
-// Formato UDP: [uint8_t flags][udpPacketType packetType][payload]
-// flags: NORMAL_PACKET, URGENT_PACKET, CRITIC_PACKET o URGENT_PACKET | CRITIC_PACKET.
 
 
 //TCP Paquetes
@@ -88,8 +84,8 @@ private:
 
     std::map<unsigned short, Client> clients;
 
-    std::map<unsigned int, Match> activeMatches;
-    std::map<unsigned short, unsigned int> clientToMatchId;
+    std::map<unsigned short, Match> activeMatches;
+    std::map<unsigned short, unsigned short> clientToMatchId;
 
     //Reloj para el movimiento
     sf::Clock movementClock;

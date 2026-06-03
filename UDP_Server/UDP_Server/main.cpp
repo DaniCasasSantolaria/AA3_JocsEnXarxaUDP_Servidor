@@ -61,7 +61,7 @@ int main() {
         PM->UpdatePingSystem(udpSocket);
         PM->ResendCriticalPackets(udpSocket);
 
-        if (selector.wait()) {
+        if (selector.wait(sf::seconds(0.01f))) {
             if (tcpServer.IsConnected() && selector.isReady(tcpServer.GetSocket())) {
                 sf::Packet packet;
                 sf::Socket::Status status = tcpServer.GetSocket().receive(packet);
@@ -87,8 +87,8 @@ int main() {
                 while (udpSocket.receive(buffer, sizeof(buffer), receivedSize, senderIP, senderPort) == sf::Socket::Status::Done) {
                     if (senderIP.has_value()) {
 
-                        std::vector<char> packetData(buffer, buffer + receivedSize);
-                        sf::IpAddress clientIP = senderIP.value();
+                        std::vector<char> packetData(buffer, buffer + receivedSize);    //Creamos una copia local de todos los bits del paquete para poder tratar directamente con
+                        sf::IpAddress clientIP = senderIP.value();                      //sus datos en los threads y no preocuparnos de si llega otro paquete que sobreescriba los datos
 
                         uint8_t bitmask = NORMAL_PACKET;
                         std::memcpy(&bitmask, packetData.data(), sizeof(bitmask));
@@ -129,6 +129,13 @@ int main() {
             }
         }
     }
-
+    //Hecho con IA para liberar los threads de forma segura
+    for (std::thread& thread : threads)
+    {
+        if (thread.joinable())
+        {
+            thread.join();
+        }
+    }
     return 0;
 }
