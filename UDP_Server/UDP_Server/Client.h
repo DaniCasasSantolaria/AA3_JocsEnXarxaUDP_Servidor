@@ -30,7 +30,8 @@ private:
 
 public:
     Client()
-        : id(0), address(std::nullopt), port(0) {}
+		: id(0), address(std::nullopt), port(0) {   //std::nullopt para indicar que no se ha asignado una dirección IP aún, es como nullptr pero para std::optional
+	}
 
     Client(unsigned short id)
         : id(id), address(std::nullopt), port(0) {}

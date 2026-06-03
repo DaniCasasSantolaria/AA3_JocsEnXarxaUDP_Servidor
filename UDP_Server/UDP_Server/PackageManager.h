@@ -18,6 +18,13 @@
 
 #define NUM_MAX_THREADS std::thread::hardware_concurrency()
 
+#define NORMAL_PACKET 0b00000000
+#define URGENT_PACKET 0b00000001
+#define CRITIC_PACKET 0b00000010
+
+#define BUFFER_SIZE 1024
+
+
 //TCP Paquetes
 enum packetType {
     HANDSHAKE,
@@ -37,9 +44,6 @@ enum mapRequestType {
     MAP_UP_TO_DATE,
     MAP_UPDATE
 };
-
-const unsigned int urgentBitmask = 00000001;
-const unsigned int criticBitmask = 00000010;
 
 //UDP Paquetes
 enum udpPacketType {
@@ -88,7 +92,7 @@ private:
 
     //THREADS QUEUE
     std::queue<std::function<void()>> taskQueue;
-    std::queue<std::function<void()>> urgentTaskQueue;
+    std::queue<std::function<void()>> urgentCriticTaskQueue;
     std::condition_variable taskQueue_cv;
 
     struct CriticalDelivery {
@@ -123,6 +127,17 @@ private:
     const float PING_THRESHOLD = 1.0f;
     const float PING_INTERVAL = 0.5f;
     const float TIMEOUT = 2.0f;
+
+    //Movimiento
+    const float playerMoveSpeed = 300.0f;
+    const float maxVerticalSpeed = 2000.0f;
+    const float tolerance = 2.0f;
+    const float margin = 15.0f;
+	unsigned const short MAX_IRREGULARITY_COUNT = 3;
+
+    //Paquetes criticos
+    const float resendInterval = 0.1f;
+    const float giveUpAfter = 5.0f;
 
 
     PacketManager() = default;
@@ -172,7 +187,7 @@ public:
 	//Task Queue
     void Worker();
     void AddTask(std::function<void()> task);
-    void AddUrgentTask(std::function<void()> task);
+    void AddUrgentCriticTask(std::function<void()> task);
 
     //Mapa
     void RequestMap();

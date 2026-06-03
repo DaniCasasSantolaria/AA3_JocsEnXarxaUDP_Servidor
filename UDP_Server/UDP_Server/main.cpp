@@ -4,20 +4,22 @@
 #include "TCPServer.h"
 #include <thread>
 
-#define TCP_SERVER_IP sf::IpAddress(10, 8, 0, 3)
+#define TCP_SERVER_IP sf::IpAddress(10, 8, 0, 2)
 #define TCP_SERVER_PORT 55007
 #define UDP_SERVER_PORT 55008
 
-int main()
-{
+int main() {
     TCPServer tcpServer(TCP_SERVER_IP, TCP_SERVER_PORT);
     sf::UdpSocket udpSocket;
     sf::SocketSelector selector;
 
+    bool closeServer = false;
+
+
     if (!tcpServer.Connect()) {
         std::cerr << "No se pudo conectar con el servidor TCP en puerto "
             << TCP_SERVER_PORT << std::endl;
-        return -1;
+        closeServer = false;
     }
 
     std::cout << "Conectado al servidor TCP" << std::endl;
@@ -38,7 +40,7 @@ int main()
 
     if (udpSocket.bind(UDP_SERVER_PORT) != sf::Socket::Status::Done) {
         std::cerr << "Error al bindear UDP en puerto " << UDP_SERVER_PORT << std::endl;
-        return -1;
+        closeServer = true;
     }
 
     udpSocket.setBlocking(false);
@@ -50,72 +52,69 @@ int main()
     //THREADS
     std::vector<std::thread> threads;
 
-    for (int i = 0; i < NUM_MAX_THREADS; i++)
+    for (unsigned short i = 0; i < NUM_MAX_THREADS; i++)
     {
         threads.push_back(std::thread(&PacketManager::Worker, PM));
     }
 
-    while (true) {
+    while (!closeServer) {
         PM->UpdatePingSystem(udpSocket);
         PM->ResendCriticalPackets(udpSocket);
 
-        if (!selector.wait(sf::milliseconds(10)))
-            continue;
+        if (selector.wait()) {
+            if (tcpServer.IsConnected() && selector.isReady(tcpServer.GetSocket())) {
+                sf::Packet packet;
+                sf::Socket::Status status = tcpServer.GetSocket().receive(packet);
 
-        if (tcpServer.IsConnected() && selector.isReady(tcpServer.GetSocket())) {
-            sf::Packet packet;
-            sf::Socket::Status status = tcpServer.GetSocket().receive(packet);
+                if (status == sf::Socket::Status::Done) {
+                    PM->HandleTCPServerPacket(packet);
+                }
+                else if (status == sf::Socket::Status::Disconnected) {
+                    selector.remove(tcpServer.GetSocket());
+                    tcpServer.Disconnect();
 
-            if (status == sf::Socket::Status::Done) {
-                PM->HandleTCPServerPacket(packet);
+                    std::cout << "Desconectado del servidor TCP" << std::endl;
+                    closeServer = true;
+                }
             }
-            else if (status == sf::Socket::Status::Disconnected) {
-                selector.remove(tcpServer.GetSocket());
-                tcpServer.Disconnect();
 
-                std::cout << "Desconectado del servidor TCP" << std::endl;
-            }
-        }
+            if (selector.isReady(udpSocket)) {
+                char buffer[BUFFER_SIZE];
+                std::size_t receivedSize = 0;
+                std::optional<sf::IpAddress> senderIP;
+                unsigned short senderPort = 0;
 
-        if (selector.isReady(udpSocket)) {
-            char buffer[1024];
-            std::size_t receivedSize = 0;
-            std::optional<sf::IpAddress> senderIP;
-            unsigned short senderPort = 0;
+                while (udpSocket.receive(buffer, sizeof(buffer), receivedSize, senderIP, senderPort) == sf::Socket::Status::Done) {
+                    if (senderIP.has_value()) {
 
-            while(udpSocket.receive(buffer, sizeof(buffer), receivedSize, senderIP, senderPort) == sf::Socket::Status::Done) {
-                if (senderIP.has_value()) {
+                        std::vector<char> packetData(buffer, buffer + receivedSize);
+                        sf::IpAddress clientIP = senderIP.value();
 
-                    std::vector<char> packetData(buffer, buffer + receivedSize);
-                    sf::IpAddress clientIP = senderIP.value();
+                        uint8_t bitmask = NORMAL_PACKET;
+                        std::memcpy(&bitmask, packetData.data(), sizeof(bitmask));
 
-                    unsigned char flags = 0;
-                    if (packetData.size() >= sizeof(udpPacketType) + sizeof(unsigned char))
-                        std::memcpy(&flags, packetData.data() + sizeof(udpPacketType), sizeof(unsigned char));
-
-                    if (flags & static_cast<unsigned char>(urgentBitmask))
-                    {
-                        PM->AddUrgentTask([packetData, clientIP, senderPort, &udpSocket]() {
-                            PM->HandleUDPClientPacket(
-                                packetData.data(),
-                                packetData.size(),
-                                clientIP,
-                                senderPort,
-                                udpSocket
-                            );
-                        });
-                    }
-                    else
-                    {
-                        PM->AddTask([packetData, clientIP, senderPort, &udpSocket]() {
-                            PM->HandleUDPClientPacket(
-                                packetData.data(),
-                                packetData.size(),
-                                clientIP,
-                                senderPort,
-                                udpSocket
-                            );
-                        });
+                        if (bitmask == URGENT_PACKET || bitmask == (CRITIC_PACKET | URGENT_PACKET) || bitmask == CRITIC_PACKET) {
+                            PM->AddUrgentCriticTask([packetData, clientIP, senderPort, &udpSocket]() {
+                                PM->HandleUDPClientPacket(
+                                    packetData.data(),
+                                    packetData.size(),
+                                    clientIP,
+                                    senderPort,
+                                    udpSocket
+                                );
+                                });
+                        }
+                        else {
+                            PM->AddTask([packetData, clientIP, senderPort, &udpSocket]() {
+                                PM->HandleUDPClientPacket(
+                                    packetData.data(),
+                                    packetData.size(),
+                                    clientIP,
+                                    senderPort,
+                                    udpSocket
+                                );
+                                });
+                        }
                     }
                 }
             }

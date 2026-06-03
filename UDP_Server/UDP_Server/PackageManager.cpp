@@ -5,6 +5,7 @@
 #include <cstring>
 #include <chrono>
 #include <fstream>
+#include <cstdint>
 
 sf::Packet& operator <<(sf::Packet& packet, packetType type) {
     return packet << static_cast<short>(type);
@@ -159,18 +160,11 @@ void PacketManager::HandleTCPServerPacket(sf::Packet& packet) {
 void PacketManager::HandleUDPClientPacket(const char* buffer, std::size_t receivedSize, const sf::IpAddress& senderIP, unsigned short senderPort, sf::UdpSocket& udpSocket) {
     std::size_t readPos = 0;
 
-    if (readPos + sizeof(udpPacketType) > receivedSize)
-        return;
+    readPos += sizeof(uint8_t); //Añadimos el tamaño de la bitmask ya que la hemos leido anteriormente
 
     udpPacketType packetType;
     std::memcpy(&packetType, buffer + readPos, sizeof(packetType));
     readPos += sizeof(packetType);
-
-    unsigned char flags = 0;
-    if (readPos + sizeof(flags) <= receivedSize) {
-        std::memcpy(&flags, buffer + readPos, sizeof(flags));
-        readPos += sizeof(flags);
-    }
 
     switch (packetType) {
     case MOVEMENT:
@@ -295,11 +289,6 @@ void PacketManager::HandleUDPMovement(const char* buffer, std::size_t receivedSi
         float absDx = std::abs(dx);
         float absDy = std::abs(dy);
 
-        const float playerMoveSpeed = 300.0f;
-        const float maxVerticalSpeed = 2000.0f;
-        const float tolerance = 2.0f;
-        const float margin = 15.0f;
-
         float maxAllowedX = playerMoveSpeed * deltaTime * tolerance + margin;
         float maxAllowedY = maxVerticalSpeed * deltaTime * tolerance + margin;
 
@@ -308,7 +297,7 @@ void PacketManager::HandleUDPMovement(const char* buffer, std::size_t receivedSi
             client->AddIrregularity();
 
             Client correctedClient = *client;
-            bool shouldFinishMatch = client->GetIrregularityCount() >= 3;
+            bool shouldFinishMatch = client->GetIrregularityCount() >= MAX_IRREGULARITY_COUNT;
 
             clients_mutex.unlock();
 
@@ -362,7 +351,7 @@ void PacketManager::SendValidatedMovement(sf::UdpSocket& udpSocket, const Client
 
     udp_mutex.lock();
 
-    char buffer[1024];
+    char buffer[BUFFER_SIZE];
     std::size_t size = 0;
 
     udpPacketType packetType = MOVEMENT;
@@ -422,7 +411,7 @@ void PacketManager::BroadcastMovementToOthers(sf::UdpSocket& udpSocket, const Cl
 
     const Match& match = matchIt->second;
 
-    char buffer[1024];
+    char buffer[BUFFER_SIZE];
     std::size_t size = 0;
 
     udpPacketType packetType = MOVEMENT;
@@ -550,7 +539,7 @@ void PacketManager::BroadcastHealthToOthers(sf::UdpSocket& udpSocket, const Clie
 
     const Match& match = matchIt->second;
 
-    char buffer[1024];
+    char buffer[BUFFER_SIZE];
     std::size_t size = 0;
 
     udpPacketType packetType = PLAYER_HEALTH_UPDATE;
@@ -598,7 +587,7 @@ void PacketManager::SendMatchFinished(sf::UdpSocket& udpSocket, const Client& ta
         return;
     }
 
-    char buffer[1024];
+    char buffer[BUFFER_SIZE];
     std::size_t size = 0;
 
     udpPacketType packetType = MATCH_FINISHED;
@@ -638,13 +627,13 @@ void PacketManager::Worker()
             std::unique_lock<std::mutex> lock(taskQueue_mutex);
 
             taskQueue_cv.wait(lock, [this]() {
-                return !urgentTaskQueue.empty() || !taskQueue.empty();
+                return !urgentCriticTaskQueue.empty() || !taskQueue.empty();
                 });
 
-            if (!urgentTaskQueue.empty())
+            if (!urgentCriticTaskQueue.empty())
             {
-                task = urgentTaskQueue.front();
-                urgentTaskQueue.pop();
+                task = urgentCriticTaskQueue.front();
+                urgentCriticTaskQueue.pop();
             }
             else
             {
@@ -666,10 +655,10 @@ void PacketManager::AddTask(std::function<void()> task)
     taskQueue_cv.notify_one();
 }
 
-void PacketManager::AddUrgentTask(std::function<void()> task)
+void PacketManager::AddUrgentCriticTask(std::function<void()> task)
 {
     taskQueue_mutex.lock();
-    urgentTaskQueue.push(task);
+    urgentCriticTaskQueue.push(task);
     taskQueue_mutex.unlock();
 
     taskQueue_cv.notify_one();
@@ -768,7 +757,7 @@ void PacketManager::SendPing(sf::UdpSocket& udpSocket, Client& client) {
     unsigned short clientId = client.GetId();
     unsigned int pingId = client.GetLastPingId() + 1;
 
-    char buffer[1024];
+    char buffer[BUFFER_SIZE];
     std::size_t size = 0;
 
     std::memcpy(buffer + size, &packetType, sizeof(packetType));
@@ -833,7 +822,7 @@ void PacketManager::HandlePing(const char* buffer, std::size_t receivedSize, std
 
     udpPacketType responseType = PONG;
 
-    char responseBuffer[1024];
+    char responseBuffer[BUFFER_SIZE];
     std::size_t responseSize = 0;
 
     std::memcpy(responseBuffer + responseSize, &responseType, sizeof(responseType));
@@ -971,7 +960,7 @@ void PacketManager::HandleClientTimeout(unsigned short clientId, sf::UdpSocket& 
 
     Match& match = matchIt->second;
 
-    char buffer[1024];
+    char buffer[BUFFER_SIZE];
     std::size_t size = 0;
 
     udpPacketType packetType = DISCONNECTED_PLAYER;
@@ -1033,7 +1022,7 @@ void PacketManager::SendIrregularityWarning(sf::UdpSocket& udpSocket, const Clie
     if (!client.HasAddresAndPort())
         return;
 
-    char buffer[1024];
+    char buffer[BUFFER_SIZE];
     std::size_t size = 0;
 
     udpPacketType packetType = IRREGULARITY_WARNING;
@@ -1076,9 +1065,6 @@ void PacketManager::HandleUDPShoot(const char* buffer, std::size_t receivedSize,
 
     unsigned short shooterNetworkId = 0;
 
-    if (readPos + sizeof(shooterNetworkId) > receivedSize)
-        return;
-
     std::memcpy(&shooterNetworkId, buffer + readPos, sizeof(shooterNetworkId));
     readPos += sizeof(shooterNetworkId);
 
@@ -1115,7 +1101,7 @@ void PacketManager::HandleUDPShoot(const char* buffer, std::size_t receivedSize,
         unsigned short criticalPacketId = criticalPacketIdCounter++;
         criticalDeliveries_mutex.unlock();
 
-        char outBuffer[1024];
+        char outBuffer[BUFFER_SIZE];
         std::size_t outSize = 0;
 
         udpPacketType pktType = SHOOT;
@@ -1207,7 +1193,7 @@ void PacketManager::SendShootConfirmed(sf::UdpSocket& udpSocket, unsigned short 
 
     clients_mutex.unlock();
 
-    char outBuffer[64];
+    char outBuffer[BUFFER_SIZE];
     std::size_t outSize = 0;
 
     udpPacketType pktType = SHOOT_CONFIRMED;
@@ -1231,9 +1217,6 @@ void PacketManager::SendShootConfirmed(sf::UdpSocket& udpSocket, unsigned short 
 }
 
 void PacketManager::ResendCriticalPackets(sf::UdpSocket& udpSocket) {
-    const float resendInterval = 0.1f;
-    const float giveUpAfter = 5.0f;
-
     float currentTime = movementClock.getElapsedTime().asSeconds();
 
     criticalDeliveries_mutex.lock();
@@ -1322,7 +1305,7 @@ void PacketManager::HandleUDPHit(const char* buffer, std::size_t receivedSize, s
 
 	clients_mutex.unlock();
 
-	char outBuffer[1024];
+	char outBuffer[BUFFER_SIZE];
 	std::size_t size = 0;
 
 	udpPacketType packetType = HIT;
@@ -1419,7 +1402,7 @@ void PacketManager::BroadcastTauntToOthers(sf::UdpSocket& udpSocket, const Clien
 
     clients_mutex.unlock();
 
-    char buffer[1024];
+    char buffer[BUFFER_SIZE];
     std::size_t size = 0;
 
     udpPacketType packetType = TAUNT;
@@ -1468,11 +1451,11 @@ void PacketManager::FinishMatchByIrregularities(unsigned short loserId, sf::UdpS
 
     Match match = matchIt->second;
 
-    char buffer[1024];
+    char buffer[BUFFER_SIZE];
     std::size_t size = 0;
 
     udpPacketType packetType = MATCH_FINISHED;
-    unsigned short reason = 1;
+    matchFinishReason reason = FINISH_BY_IRREGULARITY;
     unsigned short loserClientId = loserId;
 
     std::memcpy(buffer + size, &packetType, sizeof(packetType));
