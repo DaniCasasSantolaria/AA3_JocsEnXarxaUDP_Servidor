@@ -57,7 +57,7 @@ bool PacketManager::IsPositionInsideSolid(float x, float y) {
         return true;
     }
 
-    //Para comprobar los colliders del mapa con el player hemos usado IA para las matemáticas que implica
+    //Para comprobar los colliders del mapa con el player hemos usado IA para las matemï¿½ticas que implica
     const float tileSize = 48.0f;
     const float playerHalfSize = 48.0f;
 
@@ -153,7 +153,7 @@ void PacketManager::HandleTCPServerPacket(sf::Packet& packet) {
 void PacketManager::HandleUDPClientPacket(const char* buffer, std::size_t receivedSize, const sf::IpAddress& senderIP, unsigned short senderPort, sf::UdpSocket& udpSocket) {
     std::size_t readPos = 0;
 
-    readPos += sizeof(uint8_t); //Añadimos el tamaño de la bitmask ya que la hemos leido anteriormente
+    readPos += sizeof(uint8_t); //Aï¿½adimos el tamaï¿½o de la bitmask ya que la hemos leido anteriormente
 
     udpPacketType packetType;
     std::memcpy(&packetType, buffer + readPos, sizeof(packetType));
@@ -168,8 +168,8 @@ void PacketManager::HandleUDPClientPacket(const char* buffer, std::size_t receiv
         HandleUDPShoot(buffer, receivedSize, readPos, udpSocket);
         break;
 
-    case SHOOT_ACK:
-        HandleShootAck(buffer, receivedSize, readPos, udpSocket);
+    case CRITICAL_ACK:
+        HandleCriticalAck(buffer, receivedSize, readPos, udpSocket);
         break;
 
     case HIT:
@@ -277,10 +277,10 @@ void PacketManager::HandleUDPMovement(const char* buffer, std::size_t receivedSi
         float dx = receivedX - client->GetX();
         float dy = receivedY - client->GetY();
 
-        float maxAllowedX = playerMoveSpeed * deltaTime * tolerance + margin;   //Calculamos la distancia máxima permitida en base a la velocidad horizontal
-        float maxAllowedY = maxVerticalSpeed * deltaTime * tolerance + margin;  //Calculamos la distancia máxima permitida en base a la velocidad vertical
+        float maxAllowedX = playerMoveSpeed * deltaTime * tolerance + margin;   //Calculamos la distancia mï¿½xima permitida en base a la velocidad horizontal
+        float maxAllowedY = maxVerticalSpeed * deltaTime * tolerance + margin;  //Calculamos la distancia mï¿½xima permitida en base a la velocidad vertical
 
-		if (std::abs(dx) > maxAllowedX || std::abs(dy) > maxAllowedY) { //Añadir irregularidad si el movimiento supera la distancia máxima permitida
+		if (std::abs(dx) > maxAllowedX || std::abs(dy) > maxAllowedY) { //Aï¿½adir irregularidad si el movimiento supera la distancia mï¿½xima permitida
             client->SetLastProcessedMovementID(movementID);
             client->AddIrregularity();
 
@@ -302,7 +302,7 @@ void PacketManager::HandleUDPMovement(const char* buffer, std::size_t receivedSi
         }
     }
 
-	if (IsPositionInsideSolid(receivedX, receivedY)) {      //Si el movimiento es dentro de un collider, lo corregimos a la posición anterior
+	if (IsPositionInsideSolid(receivedX, receivedY)) {      //Si el movimiento es dentro de un collider, lo corregimos a la posiciï¿½n anterior
         client->SetLastProcessedMovementID(movementID);
         client->SetLastMovementTime(currentTime);
 
@@ -522,25 +522,21 @@ void PacketManager::BroadcastHealthToOthers(sf::UdpSocket& udpSocket, const Clie
 
     const Match& match = matchIt->second;
 
-    char buffer[BUFFER_SIZE];
-    std::size_t size = 0;
-
-    udpPacketType packetType = PLAYER_HEALTH_UPDATE;
-
     unsigned short clientId = damagedClient.GetId();
 
-    WriteUdpHeader(buffer, size, URGENT_PACKET, packetType);
+    char payload[sizeof(clientId) + sizeof(lives) + sizeof(health)];
+    std::size_t payloadSize = 0;
 
-    std::memcpy(buffer + size, &clientId, sizeof(clientId));
-    size += sizeof(clientId);
+    std::memcpy(payload + payloadSize, &clientId, sizeof(clientId));
+    payloadSize += sizeof(clientId);
 
-    std::memcpy(buffer + size, &lives, sizeof(lives));
-    size += sizeof(lives);
+    std::memcpy(payload + payloadSize, &lives, sizeof(lives));
+    payloadSize += sizeof(lives);
 
-    std::memcpy(buffer + size, &health, sizeof(health));
-    size += sizeof(health);
+    std::memcpy(payload + payloadSize, &health, sizeof(health));
+    payloadSize += sizeof(health);
 
-    udp_mutex.lock();
+    std::vector<Client> targets;
 
     for (std::map<unsigned short, Client>::iterator it = clients.begin(); it != clients.end(); it++) {
         Client& target = it->second;
@@ -554,14 +550,12 @@ void PacketManager::BroadcastHealthToOthers(sf::UdpSocket& udpSocket, const Clie
         if (!target.HasAddresAndPort())
             continue;
 
-        if (udpSocket.send(buffer, size, target.GetIpAddress().value(), target.GetPort()) != sf::Socket::Status::Done) {
-            console_mutex.lock();
-            std::cerr << "Error al enviar PLAYER_HEALTH_UPDATE a cliente id = " << target.GetId() << std::endl;
-            console_mutex.unlock();
-        }
+        targets.push_back(target);
     }
 
-    udp_mutex.unlock();
+    for (unsigned short i = 0; i < static_cast<unsigned short>(targets.size()); i++) {
+        SendAsCritical(payload, payloadSize, PLAYER_HEALTH_UPDATE, URGENT_PACKET, targets[i].GetId(), 0, targets[i].GetIpAddress().value(), targets[i].GetPort(), udpSocket);
+    }
 }
 
 void PacketManager::SendMatchFinished(sf::UdpSocket& udpSocket, const Client& targetClient, matchResult result, matchFinishReason reason) {
@@ -569,31 +563,19 @@ void PacketManager::SendMatchFinished(sf::UdpSocket& udpSocket, const Client& ta
         return;
     }
 
-    char buffer[BUFFER_SIZE];
-    std::size_t size = 0;
-
-    udpPacketType packetType = MATCH_FINISHED;
+    char payload[sizeof(matchResult) + sizeof(matchFinishReason)];
+    std::size_t payloadSize = 0;
 
     matchResult resultValue = result;
     matchFinishReason reasonValue = reason;
 
-    WriteUdpHeader(buffer, size, URGENT_PACKET | CRITIC_PACKET, packetType);
+    std::memcpy(payload + payloadSize, &resultValue, sizeof(resultValue));
+    payloadSize += sizeof(resultValue);
 
-    std::memcpy(buffer + size, &resultValue, sizeof(resultValue));
-    size += sizeof(resultValue);
+    std::memcpy(payload + payloadSize, &reasonValue, sizeof(reasonValue));
+    payloadSize += sizeof(reasonValue);
 
-    std::memcpy(buffer + size, &reasonValue, sizeof(reasonValue));
-    size += sizeof(reasonValue);
-
-    udp_mutex.lock();
-
-    if (udpSocket.send(buffer, size, targetClient.GetIpAddress().value(), targetClient.GetPort()) != sf::Socket::Status::Done) {
-        console_mutex.lock();
-        std::cerr << "Error al enviar resultado de partida a cliente id = " << targetClient.GetId() << std::endl;
-        console_mutex.unlock();
-    }
-
-    udp_mutex.unlock();
+    SendAsCritical(payload, payloadSize, MATCH_FINISHED, NORMAL_PACKET, targetClient.GetId(), 0, targetClient.GetIpAddress().value(), targetClient.GetPort(), udpSocket);
 }
 
 void PacketManager::StopWorkers(){
@@ -641,7 +623,7 @@ void PacketManager::AddTask(std::function<void()> task) {
     taskQueue.push(task);
     taskQueue_mutex.unlock();
 
-	taskQueue_cv.notify_one();      //Activamos a un worker para que ejecute la tarea que acabamos de añadir
+	taskQueue_cv.notify_one();      //Activamos a un worker para que ejecute la tarea que acabamos de aï¿½adir
 }
 
 void PacketManager::AddUrgentCriticTask(std::function<void()> task) {
@@ -944,16 +926,11 @@ void PacketManager::HandleClientTimeout(unsigned short clientId, sf::UdpSocket& 
     unsigned short winnerId = match->GetOtherPlayerId(clientId);
     std::string winnerUsername = match->GetUsernameById(winnerId);
 
-    char buffer[BUFFER_SIZE];
-    std::size_t size = 0;
-
-    udpPacketType packetType = DISCONNECTED_PLAYER;
     unsigned short disconnectedClientId = clientId;
-
-    WriteUdpHeader(buffer, size, URGENT_PACKET | CRITIC_PACKET, packetType);
-
-    std::memcpy(buffer + size, &disconnectedClientId, sizeof(disconnectedClientId));
-    size += sizeof(disconnectedClientId);
+    char payload[sizeof(disconnectedClientId)];
+    std::size_t payloadSize = 0;
+    std::memcpy(payload + payloadSize, &disconnectedClientId, sizeof(disconnectedClientId));
+    payloadSize += sizeof(disconnectedClientId);
 
     std::vector<Client> targets;
 
@@ -980,19 +957,9 @@ void PacketManager::HandleClientTimeout(unsigned short clientId, sf::UdpSocket& 
 
     clients_mutex.unlock();
 
-    udp_mutex.lock();
-
-    for (unsigned short i = 0; i < targets.size(); i++) {
-        Client* target = &targets[i];
-
-        if (udpSocket.send(buffer, size, target->GetIpAddress().value(), target->GetPort()) != sf::Socket::Status::Done) {
-            console_mutex.lock();
-            std::cerr << "Error enviando DISCONNECTED_PLAYER a cliente id=" << target->GetId() << std::endl;
-            console_mutex.unlock();
-        }
+    for (unsigned short i = 0; i < static_cast<unsigned short>(targets.size()); i++) {
+        SendAsCritical(payload, payloadSize, DISCONNECTED_PLAYER, NORMAL_PACKET, targets[i].GetId(), 0, targets[i].GetIpAddress().value(), targets[i].GetPort(), udpSocket);
     }
-
-    udp_mutex.unlock();
 
     if (tcpServer != nullptr && !winnerUsername.empty()) {
         sf::Packet packet;
@@ -1005,42 +972,30 @@ void PacketManager::SendIrregularityWarning(sf::UdpSocket& udpSocket, const Clie
     if (!client.HasAddresAndPort())
         return;
 
-    char buffer[BUFFER_SIZE];
-    std::size_t size = 0;
-
-    udpPacketType packetType = IRREGULARITY_WARNING;
-
     unsigned short clientId = client.GetId();
     unsigned short irregularityCount = client.GetIrregularityCount();
     float validX = client.GetX();
     float validY = client.GetY();
 
-    WriteUdpHeader(buffer, size, URGENT_PACKET, packetType);
+    char payload[sizeof(clientId) + sizeof(movementID) + sizeof(validX) + sizeof(validY) + sizeof(irregularityCount)];
+    std::size_t payloadSize = 0;
 
-    std::memcpy(buffer + size, &clientId, sizeof(clientId));
-    size += sizeof(clientId);
+    std::memcpy(payload + payloadSize, &clientId, sizeof(clientId));
+    payloadSize += sizeof(clientId);
 
-    std::memcpy(buffer + size, &movementID, sizeof(movementID));
-    size += sizeof(movementID);
+    std::memcpy(payload + payloadSize, &movementID, sizeof(movementID));
+    payloadSize += sizeof(movementID);
 
-    std::memcpy(buffer + size, &validX, sizeof(validX));
-    size += sizeof(validX);
+    std::memcpy(payload + payloadSize, &validX, sizeof(validX));
+    payloadSize += sizeof(validX);
 
-    std::memcpy(buffer + size, &validY, sizeof(validY));
-    size += sizeof(validY);
+    std::memcpy(payload + payloadSize, &validY, sizeof(validY));
+    payloadSize += sizeof(validY);
 
-    std::memcpy(buffer + size, &irregularityCount, sizeof(irregularityCount));
-    size += sizeof(irregularityCount);
+    std::memcpy(payload + payloadSize, &irregularityCount, sizeof(irregularityCount));
+    payloadSize += sizeof(irregularityCount);
 
-    udp_mutex.lock();
-
-    if (udpSocket.send(buffer, size, client.GetIpAddress().value(), client.GetPort()) != sf::Socket::Status::Done) {
-        console_mutex.lock();
-        std::cerr << "Error enviando IRREGULARITY_WARNING a cliente id=" << clientId << std::endl;
-        console_mutex.unlock();
-    }
-
-    udp_mutex.unlock();
+    SendAsCritical(payload, payloadSize, IRREGULARITY_WARNING, NORMAL_PACKET, clientId, 0, client.GetIpAddress().value(), client.GetPort(), udpSocket);
 }
 
 void PacketManager::HandleUDPShoot(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket) {
@@ -1075,48 +1030,60 @@ void PacketManager::HandleUDPShoot(const char* buffer, std::size_t receivedSize,
 
     clients_mutex.unlock();
 
-    float currentTime = movementClock.getElapsedTime().asSeconds();
+    char payload[sizeof(shooterNetworkId)];
+    std::size_t payloadSize = 0;
+    std::memcpy(payload + payloadSize, &shooterNetworkId, sizeof(shooterNetworkId));
+    payloadSize += sizeof(shooterNetworkId);
 
-    for (unsigned short i = 0; i < targets.size(); i++) {
-        criticalDeliveries_mutex.lock();
-        unsigned short criticalPacketId = criticalPacketIdCounter++;
-        criticalDeliveries_mutex.unlock();
-
-        char outBuffer[BUFFER_SIZE];
-        std::size_t outSize = 0;
-
-        udpPacketType pktType = SHOOT;
-        WriteUdpHeader(outBuffer, outSize, URGENT_PACKET | CRITIC_PACKET, pktType);
-
-        std::memcpy(outBuffer + outSize, &shooterNetworkId, sizeof(shooterNetworkId));
-        outSize += sizeof(shooterNetworkId);
-
-        std::memcpy(outBuffer + outSize, &criticalPacketId, sizeof(criticalPacketId));
-        outSize += sizeof(criticalPacketId);
-
-        CriticalDelivery delivery;
-        delivery.criticalPacketId = criticalPacketId;
-        delivery.packetData = std::vector<char>(outBuffer, outBuffer + outSize);
-        delivery.targetClientId = targets[i].GetId();
-        delivery.shooterClientId = shooterNetworkId;
-        delivery.lastSendTime = currentTime;
-        delivery.firstSendTime = currentTime;
-
-        criticalDeliveries_mutex.lock();
-        pendingCriticalDeliveries[criticalPacketId] = delivery;
-        criticalDeliveries_mutex.unlock();
-
-        udp_mutex.lock();
-        if (udpSocket.send(outBuffer, outSize, targets[i].GetIpAddress().value(), targets[i].GetPort()) != sf::Socket::Status::Done) {
-            console_mutex.lock();
-            std::cerr << "Error enviando SHOOT a cliente id=" << targets[i].GetId() << std::endl;
-            console_mutex.unlock();
-        }
-        udp_mutex.unlock();
+    for (unsigned short i = 0; i < static_cast<unsigned short>(targets.size()); i++) {
+        SendAsCritical(payload, payloadSize, SHOOT, URGENT_PACKET, targets[i].GetId(), shooterNetworkId, targets[i].GetIpAddress().value(), targets[i].GetPort(), udpSocket);
     }
 }
 
-void PacketManager::HandleShootAck(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket) {
+void PacketManager::SendAsCritical(const char* payload, std::size_t payloadSize, udpPacketType originalType, uint8_t baseFlags, unsigned short targetClientId, unsigned short senderClientId, const sf::IpAddress& targetIp, unsigned short targetPort, sf::UdpSocket& udpSocket) {
+    criticalDeliveries_mutex.lock();
+    unsigned short criticalPacketId = criticalPacketIdCounter++;
+    criticalDeliveries_mutex.unlock();
+
+    char outBuffer[BUFFER_SIZE];
+    std::size_t outSize = 0;
+    
+    uint8_t flags = baseFlags | CRITIC_PACKET;
+    WriteUdpHeader(outBuffer, outSize, flags, originalType);
+
+    std::memcpy(outBuffer + outSize, &criticalPacketId, sizeof(criticalPacketId));
+    outSize += sizeof(criticalPacketId);
+
+    if (payload != nullptr && payloadSize > 0) {
+        std::memcpy(outBuffer + outSize, payload, payloadSize);
+        outSize += payloadSize;
+    }
+
+    float currentTime = movementClock.getElapsedTime().asSeconds();
+
+    CriticalDelivery delivery;
+    delivery.criticalPacketId = criticalPacketId;
+    delivery.packetData = std::vector<char>(outBuffer, outBuffer + outSize);
+    delivery.targetClientId = targetClientId;
+    delivery.senderClientId = senderClientId;
+    delivery.originalPacketType = originalType;
+    delivery.lastSendTime = currentTime;
+    delivery.firstSendTime = currentTime;
+
+    criticalDeliveries_mutex.lock();
+    pendingCriticalDeliveries[criticalPacketId] = delivery;
+    criticalDeliveries_mutex.unlock();
+
+    udp_mutex.lock();
+    if (udpSocket.send(outBuffer, outSize, targetIp, targetPort) != sf::Socket::Status::Done) {
+        console_mutex.lock();
+        std::cerr << "Error enviando paquete critico tipo=" << originalType << " a cliente id=" << targetClientId << std::endl;
+        console_mutex.unlock();
+    }
+    udp_mutex.unlock();
+}
+
+void PacketManager::HandleCriticalAck(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket) {
     unsigned short clientId = 0;
     unsigned short criticalPacketId = 0;
 
@@ -1129,19 +1096,23 @@ void PacketManager::HandleShootAck(const char* buffer, std::size_t receivedSize,
     std::memcpy(&criticalPacketId, buffer + readPos, sizeof(criticalPacketId));
     readPos += sizeof(criticalPacketId);
 
-    unsigned short shooterClientId = 0;
+    unsigned short senderClientId = 0;
+    udpPacketType originalPacketType = SHOOT;
     bool allDelivered = false;
+    bool foundDelivery = false;
 
     criticalDeliveries_mutex.lock();
 
     std::map<unsigned short, CriticalDelivery>::iterator it = pendingCriticalDeliveries.find(criticalPacketId);
     if (it != pendingCriticalDeliveries.end()) {
-        shooterClientId = it->second.shooterClientId;
+        senderClientId = it->second.senderClientId;
+        originalPacketType = it->second.originalPacketType;
+        foundDelivery = true;
         pendingCriticalDeliveries.erase(it);
 
         allDelivered = true;
         for (std::map<unsigned short, CriticalDelivery>::iterator pending = pendingCriticalDeliveries.begin(); pending != pendingCriticalDeliveries.end(); pending++) {
-            if (pending->second.shooterClientId == shooterClientId) {
+            if (pending->second.senderClientId == senderClientId && pending->second.originalPacketType == originalPacketType) {
                 allDelivered = false;
                 break;
             }
@@ -1151,18 +1122,18 @@ void PacketManager::HandleShootAck(const char* buffer, std::size_t receivedSize,
     criticalDeliveries_mutex.unlock();
 
     console_mutex.lock();
-    std::cout << "Bala entregada al cliente id=" << clientId << " criticalPacketId=" << criticalPacketId << std::endl;
+    std::cout << "CRITICAL_ACK recibido del cliente id=" << clientId << " criticalPacketId=" << criticalPacketId << std::endl;
     console_mutex.unlock();
 
-    if (allDelivered && shooterClientId != 0) {
-        SendShootConfirmed(udpSocket, shooterClientId);
+    if (foundDelivery && allDelivered && senderClientId != 0) {
+        SendCriticalConfirmed(udpSocket, senderClientId, originalPacketType);
     }
 }
 
-void PacketManager::SendShootConfirmed(sf::UdpSocket& udpSocket, unsigned short shooterClientId) {
+void PacketManager::SendCriticalConfirmed(sf::UdpSocket& udpSocket, unsigned short senderClientId, udpPacketType originalPacketType) {
     clients_mutex.lock();
 
-    std::map<unsigned short, Client>::iterator clientIt = clients.find(shooterClientId);
+    std::map<unsigned short, Client>::iterator clientIt = clients.find(senderClientId);
     if (clientIt == clients.end() || !clientIt->second.HasAddresAndPort() || clientIt->second.IsDisconnected()) {
         clients_mutex.unlock();
         return;
@@ -1176,22 +1147,24 @@ void PacketManager::SendShootConfirmed(sf::UdpSocket& udpSocket, unsigned short 
     char outBuffer[BUFFER_SIZE];
     std::size_t outSize = 0;
 
-    udpPacketType pktType = SHOOT_CONFIRMED;
-    WriteUdpHeader(outBuffer, outSize, URGENT_PACKET, pktType);
+    WriteUdpHeader(outBuffer, outSize, URGENT_PACKET, CRITICAL_CONFIRMED);
 
-    std::memcpy(outBuffer + outSize, &shooterClientId, sizeof(shooterClientId));
-    outSize += sizeof(shooterClientId);
+    std::memcpy(outBuffer + outSize, &originalPacketType, sizeof(originalPacketType));
+    outSize += sizeof(originalPacketType);
+
+    std::memcpy(outBuffer + outSize, &senderClientId, sizeof(senderClientId));
+    outSize += sizeof(senderClientId);
 
     udp_mutex.lock();
     if (udpSocket.send(outBuffer, outSize, targetIp, targetPort) != sf::Socket::Status::Done) {
         console_mutex.lock();
-        std::cerr << "Error enviando SHOOT_CONFIRMED a cliente id=" << shooterClientId << std::endl;
+        std::cerr << "Error enviando CRITICAL_CONFIRMED a cliente id=" << senderClientId << std::endl;
         console_mutex.unlock();
     }
     udp_mutex.unlock();
 
     console_mutex.lock();
-    std::cout << "SHOOT_CONFIRMED enviado al cliente id=" << shooterClientId << std::endl;
+    std::cout << "CRITICAL_CONFIRMED enviado al cliente id=" << senderClientId << " tipo=" << originalPacketType << std::endl;
     console_mutex.unlock();
 }
 
@@ -1227,7 +1200,7 @@ void PacketManager::ResendCriticalPackets(sf::UdpSocket& udpSocket) {
         udp_mutex.lock();
         if(udpSocket.send(delivery->packetData.data(), delivery->packetData.size(), targetIp, targetPort) != sf::Socket::Status::Done) {
             console_mutex.lock();
-            std::cerr << "Error re-enviando paquete crítico a cliente id=" << delivery->targetClientId << std::endl;
+            std::cerr << "Error re-enviando paquete crï¿½tico a cliente id=" << delivery->targetClientId << std::endl;
             console_mutex.unlock();
         }
         udp_mutex.unlock();
@@ -1287,24 +1260,15 @@ void PacketManager::HandleUDPHit(const char* buffer, std::size_t receivedSize, s
 
 	clients_mutex.unlock();
 
-	char outBuffer[BUFFER_SIZE];
-	std::size_t size = 0;
+	char payload[sizeof(targetId)];
+	std::size_t payloadSize = 0;
 
-	udpPacketType packetType = HIT;
-    WriteUdpHeader(outBuffer, size, URGENT_PACKET, packetType);
+	std::memcpy(payload + payloadSize, &targetId, sizeof(targetId));
+	payloadSize += sizeof(targetId);
 
-	std::memcpy(outBuffer + size, &targetId, sizeof(targetId));
-	size += sizeof(targetId);
-
-	udp_mutex.lock();
-	for (unsigned short i = 0; i < targets.size(); i++) {
-		if (udpSocket.send(outBuffer, size, targets[i].GetIpAddress().value(), targets[i].GetPort()) != sf::Socket::Status::Done) {
-			console_mutex.lock();
-			std::cerr << "Error enviando HIT_CONFIRMED a cliente id=" << targets[i].GetId() << std::endl;
-			console_mutex.unlock();
-		}
+	for (unsigned short i = 0; i < static_cast<unsigned short>(targets.size()); i++) {
+		SendAsCritical(payload, payloadSize, HIT, URGENT_PACKET, targets[i].GetId(), 0, targets[i].GetIpAddress().value(), targets[i].GetPort(), udpSocket);
 	}
-	udp_mutex.unlock();
 }
 
 void PacketManager::HandleUDPTaunt(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket) {
@@ -1379,31 +1343,20 @@ void PacketManager::BroadcastTauntToOthers(sf::UdpSocket& udpSocket, const Clien
 
     clients_mutex.unlock();
 
-    char buffer[BUFFER_SIZE];
-    std::size_t size = 0;
-
-    udpPacketType packetType = TAUNT;
     unsigned short clientId = tauntingClient.GetId();
 
-    WriteUdpHeader(buffer, size, URGENT_PACKET, packetType);
+    char payload[sizeof(clientId) + sizeof(tauntId)];
+    std::size_t payloadSize = 0;
 
-    std::memcpy(buffer + size, &clientId, sizeof(clientId));
-    size += sizeof(clientId);
+    std::memcpy(payload + payloadSize, &clientId, sizeof(clientId));
+    payloadSize += sizeof(clientId);
 
-    std::memcpy(buffer + size, &tauntId, sizeof(tauntId));
-    size += sizeof(tauntId);
+    std::memcpy(payload + payloadSize, &tauntId, sizeof(tauntId));
+    payloadSize += sizeof(tauntId);
 
-    udp_mutex.lock();
-
-    for (unsigned short i = 0; i < targets.size(); i++) {
-        if (udpSocket.send(buffer, size, targets[i].GetIpAddress().value(), targets[i].GetPort()) != sf::Socket::Status::Done) {
-            console_mutex.lock();
-            std::cerr << "Error enviando TAUNT a cliente id=" << targets[i].GetId() << std::endl;
-            console_mutex.unlock();
-        }
+    for (unsigned short i = 0; i < static_cast<unsigned short>(targets.size()); i++) {
+        SendAsCritical(payload, payloadSize, TAUNT, NORMAL_PACKET, targets[i].GetId(), 0, targets[i].GetIpAddress().value(), targets[i].GetPort(), udpSocket);
     }
-
-    udp_mutex.unlock();
 }
 
 void PacketManager::FinishMatchByIrregularities(unsigned short loserId, sf::UdpSocket& udpSocket) {

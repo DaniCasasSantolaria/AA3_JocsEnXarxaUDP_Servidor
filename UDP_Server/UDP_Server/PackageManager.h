@@ -58,8 +58,8 @@ enum udpPacketType {
     IRREGULARITY_WARNING,
     PLAYER_HEALTH_UPDATE,
     MATCH_FINISHED,
-    SHOOT_ACK,
-    SHOOT_CONFIRMED
+    CRITICAL_ACK,
+    CRITICAL_CONFIRMED
 };
 
 enum movementPacketType {
@@ -102,7 +102,8 @@ private:
         unsigned short criticalPacketId;
         std::vector<char> packetData;
         unsigned short targetClientId;
-        unsigned short shooterClientId;
+        unsigned short senderClientId;
+        udpPacketType originalPacketType;
         float lastSendTime;
         float firstSendTime;
     };
@@ -176,9 +177,12 @@ public:
 
     //Disparo
     void HandleUDPShoot(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
-    void HandleShootAck(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
-    void SendShootConfirmed(sf::UdpSocket& udpSocket, unsigned short shooterClientId);
     void ResendCriticalPackets(sf::UdpSocket& udpSocket);
+
+    //Paquetes criticos genericos
+    void SendAsCritical(const char* payload, std::size_t payloadSize, udpPacketType originalType, uint8_t baseFlags, unsigned short targetClientId, unsigned short senderClientId, const sf::IpAddress& targetIp, unsigned short targetPort, sf::UdpSocket& udpSocket);
+    void HandleCriticalAck(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
+    void SendCriticalConfirmed(sf::UdpSocket& udpSocket, unsigned short senderClientId, udpPacketType originalPacketType);
 
     //Golpe
     void HandleUDPHit(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
