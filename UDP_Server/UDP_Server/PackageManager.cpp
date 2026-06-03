@@ -532,7 +532,7 @@ void PacketManager::HandlePlayerHealthUpdate(const char* buffer, std::size_t rec
     SendMatchFinished(udpSocket, loserClient, MATCH_RESULT_LOSE, FINISH_BY_LIVES);
     SendMatchFinished(udpSocket, winnerClient, MATCH_RESULT_WIN, FINISH_BY_LIVES);
 
-    if (tcpServer != nullptr) {
+    if (tcpServer != nullptr && match.GetMode() == 1) {
         sf::Packet packet;
         packet << GAME_RESULT << winnerClientId << winnerUsername;
         tcpServer->Send(packet);
@@ -1503,7 +1503,7 @@ void PacketManager::FinishMatchByIrregularities(unsigned short loserId, sf::UdpS
 
     activeMatches.erase(matchId);
 
-    for (unsigned int i = 0; i < clientsToErase.size(); i++) {
+    for (unsigned short i = 0; i < clientsToErase.size(); i++) {
         clients.erase(clientsToErase[i]);
     }
 
