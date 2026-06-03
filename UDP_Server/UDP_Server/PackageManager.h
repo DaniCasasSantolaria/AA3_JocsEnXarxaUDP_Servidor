@@ -85,7 +85,7 @@ private:
     std::map<unsigned short, Client> clients;
 
     std::map<unsigned short, Match> activeMatches;
-    std::map<unsigned short, unsigned short> clientToMatchId;
+	std::map<unsigned short, unsigned short> clientToMatchId;   // ID Cliente -> ID Partida
 
     //Reloj para el movimiento
     sf::Clock movementClock;
@@ -180,7 +180,7 @@ public:
     void ResendCriticalPackets(sf::UdpSocket& udpSocket);
 
     //Paquetes criticos genericos
-    void SendAsCritical(const char* payload, std::size_t payloadSize, udpPacketType originalType, uint8_t baseFlags, unsigned short targetClientId, unsigned short senderClientId, const sf::IpAddress& targetIp, unsigned short targetPort, sf::UdpSocket& udpSocket);
+    void SendAsCritical(const char* buffer, std::size_t bufferSize, udpPacketType originalType, uint8_t baseFlags, unsigned short targetClientId, unsigned short senderClientId, const sf::IpAddress& targetIp, unsigned short targetPort, sf::UdpSocket& udpSocket);
     void HandleCriticalAck(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
     void SendCriticalConfirmed(sf::UdpSocket& udpSocket, unsigned short senderClientId, udpPacketType originalPacketType);
 
