@@ -166,6 +166,12 @@ void PacketManager::HandleUDPClientPacket(const char* buffer, std::size_t receiv
     std::memcpy(&packetType, buffer + readPos, sizeof(packetType));
     readPos += sizeof(packetType);
 
+    unsigned char flags = 0;
+    if (readPos + sizeof(flags) <= receivedSize) {
+        std::memcpy(&flags, buffer + readPos, sizeof(flags));
+        readPos += sizeof(flags);
+    }
+
     switch (packetType) {
     case MOVEMENT:
         HandleUDPMovement(buffer, receivedSize, readPos, senderIP, senderPort, udpSocket);

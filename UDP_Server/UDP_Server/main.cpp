@@ -89,11 +89,11 @@ int main()
                     std::vector<char> packetData(buffer, buffer + receivedSize);
                     sf::IpAddress clientIP = senderIP.value();
 
-                    udpPacketType peekedType = MOVEMENT;
-                    if (packetData.size() >= sizeof(udpPacketType))
-                        std::memcpy(&peekedType, packetData.data(), sizeof(udpPacketType));
+                    unsigned char flags = 0;
+                    if (packetData.size() >= sizeof(udpPacketType) + sizeof(unsigned char))
+                        std::memcpy(&flags, packetData.data() + sizeof(udpPacketType), sizeof(unsigned char));
 
-                    if (peekedType == SHOOT || peekedType == SHOOT_ACK || peekedType == HIT)
+                    if (flags & static_cast<unsigned char>(urgentBitmask))
                     {
                         PM->AddUrgentTask([packetData, clientIP, senderPort, &udpSocket]() {
                             PM->HandleUDPClientPacket(

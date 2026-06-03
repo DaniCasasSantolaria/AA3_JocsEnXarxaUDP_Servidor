@@ -38,6 +38,9 @@ enum mapRequestType {
     MAP_UPDATE
 };
 
+const unsigned int urgentBitmask = 00000001;
+const unsigned int criticBitmask = 00000010;
+
 //UDP Paquetes
 enum udpPacketType {
     MOVEMENT,
