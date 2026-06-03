@@ -4,7 +4,7 @@
 #include "TCPServer.h"
 #include <thread>
 
-#define TCP_SERVER_IP sf::IpAddress(10, 8, 0, 3)
+#define TCP_SERVER_IP sf::IpAddress(10, 8, 0, 4)
 #define TCP_SERVER_PORT 55007
 #define UDP_SERVER_PORT 55008
 
@@ -130,6 +130,8 @@ int main() {
         }
     }
     //Hecho con IA para liberar los threads de forma segura
+    PM->StopWorkers();
+    
     for (std::thread& thread : threads)
     {
         if (thread.joinable())

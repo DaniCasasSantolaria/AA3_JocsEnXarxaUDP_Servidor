@@ -90,6 +90,9 @@ private:
     //Reloj para el movimiento
     sf::Clock movementClock;
 
+    //Threads
+    bool shuttingDown = false;
+
     //THREADS QUEUE
     std::queue<std::function<void()>> taskQueue;
     std::queue<std::function<void()>> urgentCriticTaskQueue;
@@ -183,6 +186,9 @@ public:
     //Burla
 	void HandleUDPTaunt(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
     void BroadcastTauntToOthers(sf::UdpSocket& udpSocket, const Client& tauntingClient, unsigned int tauntId);
+
+    //Threads
+    void StopWorkers();
 
 	//Task Queue
     void Worker();

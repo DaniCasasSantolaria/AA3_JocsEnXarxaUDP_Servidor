@@ -596,24 +596,37 @@ void PacketManager::SendMatchFinished(sf::UdpSocket& udpSocket, const Client& ta
     udp_mutex.unlock();
 }
 
-void PacketManager::Worker() {
-    bool closeThread = false;
+void PacketManager::StopWorkers(){
+    taskQueue_mutex.lock();
+    shuttingDown = true;
+    taskQueue_mutex.unlock();
 
-    while (!closeThread) {
+    taskQueue_cv.notify_all();
+}
+
+void PacketManager::Worker() {
+    while (true){
         std::function<void()> task;
         {
-			//Unique lock obligatorio para usar condition_variable
+            //Unique lock obligatorio para usar condition_variable
             std::unique_lock<std::mutex> lock(taskQueue_mutex);
 
-			taskQueue_cv.wait(lock, [this]() {                  //Esperamos a que haya tareas en alguna de las colas
-                return !urgentCriticTaskQueue.empty() || !taskQueue.empty();
+            taskQueue_cv.wait(lock, [this]() {          //Esperamos a que haya tareas en alguna de las colas
+                return shuttingDown || !urgentCriticTaskQueue.empty() || !taskQueue.empty();
                 });
 
-            if (!urgentCriticTaskQueue.empty()) {
+            if (shuttingDown && urgentCriticTaskQueue.empty() && taskQueue.empty())
+            {
+                return;
+            }
+
+            if (!urgentCriticTaskQueue.empty())
+            {
                 task = urgentCriticTaskQueue.front();
                 urgentCriticTaskQueue.pop();
             }
-            else {
+            else
+            {
                 task = taskQueue.front();
                 taskQueue.pop();
             }
