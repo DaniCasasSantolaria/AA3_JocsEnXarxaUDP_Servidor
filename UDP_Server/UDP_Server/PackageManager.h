@@ -1,5 +1,4 @@
 #pragma once
-
 #include <SFML/Network.hpp>
 #include <map>
 #include <string>
@@ -24,9 +23,6 @@
 #define CRITIC_PACKET 0b00000010
 
 #define BUFFER_SIZE 1024
-
-// Formato UDP: [uint8_t flags][udpPacketType packetType][payload]
-// flags: NORMAL_PACKET, URGENT_PACKET, CRITIC_PACKET o URGENT_PACKET | CRITIC_PACKET.
 
 
 //TCP Paquetes
@@ -62,8 +58,8 @@ enum udpPacketType {
     IRREGULARITY_WARNING,
     PLAYER_HEALTH_UPDATE,
     MATCH_FINISHED,
-    SHOOT_ACK,
-    SHOOT_CONFIRMED
+    CRITICAL_ACK,
+    CRITICAL_CONFIRMED
 };
 
 enum movementPacketType {
@@ -88,11 +84,14 @@ private:
 
     std::map<unsigned short, Client> clients;
 
-    std::map<unsigned int, Match> activeMatches;
-    std::map<unsigned short, unsigned int> clientToMatchId;
+    std::map<unsigned short, Match> activeMatches;
+	std::map<unsigned short, unsigned short> clientToMatchId;   // ID Cliente -> ID Partida
 
     //Reloj para el movimiento
     sf::Clock movementClock;
+
+    //Threads
+    bool shuttingDown = false;
 
     //THREADS QUEUE
     std::queue<std::function<void()>> taskQueue;
@@ -103,7 +102,8 @@ private:
         unsigned short criticalPacketId;
         std::vector<char> packetData;
         unsigned short targetClientId;
-        unsigned short shooterClientId;
+        unsigned short senderClientId;
+        udpPacketType originalPacketType;
         float lastSendTime;
         float firstSendTime;
     };
@@ -177,9 +177,12 @@ public:
 
     //Disparo
     void HandleUDPShoot(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
-    void HandleShootAck(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
-    void SendShootConfirmed(sf::UdpSocket& udpSocket, unsigned short shooterClientId);
     void ResendCriticalPackets(sf::UdpSocket& udpSocket);
+
+    //Paquetes criticos genericos
+    void SendAsCritical(const char* buffer, std::size_t bufferSize, udpPacketType originalType, uint8_t baseFlags, unsigned short targetClientId, unsigned short senderClientId, const sf::IpAddress& targetIp, unsigned short targetPort, sf::UdpSocket& udpSocket);
+    void HandleCriticalAck(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
+    void SendCriticalConfirmed(sf::UdpSocket& udpSocket, unsigned short senderClientId, udpPacketType originalPacketType);
 
     //Golpe
     void HandleUDPHit(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
@@ -187,6 +190,9 @@ public:
     //Burla
 	void HandleUDPTaunt(const char* buffer, std::size_t receivedSize, std::size_t readPos, sf::UdpSocket& udpSocket);
     void BroadcastTauntToOthers(sf::UdpSocket& udpSocket, const Client& tauntingClient, unsigned int tauntId);
+
+    //Threads
+    void StopWorkers();
 
 	//Task Queue
     void Worker();
