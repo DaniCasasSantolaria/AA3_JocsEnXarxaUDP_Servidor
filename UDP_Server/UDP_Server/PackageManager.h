@@ -13,6 +13,7 @@
 #include <SFML/System.hpp>
 #include <thread>
 #include <condition_variable>
+#include <cstdint>
 
 #define PM PacketManager::Instance()
 
@@ -23,6 +24,9 @@
 #define CRITIC_PACKET 0b00000010
 
 #define BUFFER_SIZE 1024
+
+// Formato UDP: [uint8_t flags][udpPacketType packetType][payload]
+// flags: NORMAL_PACKET, URGENT_PACKET, CRITIC_PACKET o URGENT_PACKET | CRITIC_PACKET.
 
 
 //TCP Paquetes

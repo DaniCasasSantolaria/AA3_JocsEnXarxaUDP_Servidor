@@ -93,18 +93,8 @@ int main() {
                         uint8_t bitmask = NORMAL_PACKET;
                         std::memcpy(&bitmask, packetData.data(), sizeof(bitmask));
 
-                        if (bitmask == URGENT_PACKET || bitmask == (CRITIC_PACKET | URGENT_PACKET) || bitmask == CRITIC_PACKET) {
-                            PM->AddUrgentCriticTask([packetData, clientIP, senderPort, &udpSocket]() {
-                                PM->HandleUDPClientPacket(
-                                    packetData.data(),
-                                    packetData.size(),
-                                    clientIP,
-                                    senderPort,
-                                    udpSocket
-                                );
-                                });
-                        }
-                        else {
+                        switch (bitmask) {
+                        case NORMAL_PACKET:
                             PM->AddTask([packetData, clientIP, senderPort, &udpSocket]() {
                                 PM->HandleUDPClientPacket(
                                     packetData.data(),
@@ -114,6 +104,25 @@ int main() {
                                     udpSocket
                                 );
                                 });
+                            break;
+
+                        case URGENT_PACKET:
+                        case CRITIC_PACKET:
+                        case URGENT_PACKET | CRITIC_PACKET:
+                            PM->AddUrgentCriticTask([packetData, clientIP, senderPort, &udpSocket]() {
+                                PM->HandleUDPClientPacket(
+                                    packetData.data(),
+                                    packetData.size(),
+                                    clientIP,
+                                    senderPort,
+                                    udpSocket
+                                );
+                                });
+                            break;
+
+                        default:
+                            std::cerr << "Paquete UDP con flags desconocidas: " << static_cast<int>(bitmask) << std::endl;
+                            break;
                         }
                     }
                 }

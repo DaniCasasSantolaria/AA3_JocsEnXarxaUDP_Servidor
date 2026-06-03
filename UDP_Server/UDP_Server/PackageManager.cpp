@@ -7,6 +7,15 @@
 #include <fstream>
 #include <cstdint>
 
+void WriteUdpHeader(char* buffer, std::size_t& size, uint8_t flags, udpPacketType packetType)
+{
+    std::memcpy(buffer + size, &flags, sizeof(flags));
+    size += sizeof(flags);
+
+    std::memcpy(buffer + size, &packetType, sizeof(packetType));
+    size += sizeof(packetType);
+}
+
 sf::Packet& operator <<(sf::Packet& packet, packetType type) {
     return packet << static_cast<short>(type);
 }
@@ -159,6 +168,10 @@ void PacketManager::HandleTCPServerPacket(sf::Packet& packet) {
 
 void PacketManager::HandleUDPClientPacket(const char* buffer, std::size_t receivedSize, const sf::IpAddress& senderIP, unsigned short senderPort, sf::UdpSocket& udpSocket) {
     std::size_t readPos = 0;
+
+    if (receivedSize < sizeof(uint8_t) + sizeof(udpPacketType)) {
+        return;
+    }
 
     readPos += sizeof(uint8_t); //Añadimos el tamaño de la bitmask ya que la hemos leido anteriormente
 
@@ -362,8 +375,7 @@ void PacketManager::SendValidatedMovement(sf::UdpSocket& udpSocket, const Client
     float x = client.GetX();
     float y = client.GetY();
 
-    std::memcpy(buffer + size, &packetType, sizeof(packetType));
-    size += sizeof(packetType);
+    WriteUdpHeader(buffer, size, NORMAL_PACKET, packetType);
 
     std::memcpy(buffer + size, &movementType, sizeof(movementType));
     size += sizeof(movementType);
@@ -422,8 +434,7 @@ void PacketManager::BroadcastMovementToOthers(sf::UdpSocket& udpSocket, const Cl
     float x = movedClient.GetX();
     float y = movedClient.GetY();
 
-    std::memcpy(buffer + size, &packetType, sizeof(packetType));
-    size += sizeof(packetType);
+    WriteUdpHeader(buffer, size, NORMAL_PACKET, packetType);
 
     std::memcpy(buffer + size, &movementType, sizeof(movementType));
     size += sizeof(movementType);
@@ -546,8 +557,7 @@ void PacketManager::BroadcastHealthToOthers(sf::UdpSocket& udpSocket, const Clie
 
     unsigned short clientId = damagedClient.GetId();
 
-    std::memcpy(buffer + size, &packetType, sizeof(packetType));
-    size += sizeof(packetType);
+    WriteUdpHeader(buffer, size, URGENT_PACKET, packetType);
 
     std::memcpy(buffer + size, &clientId, sizeof(clientId));
     size += sizeof(clientId);
@@ -595,8 +605,7 @@ void PacketManager::SendMatchFinished(sf::UdpSocket& udpSocket, const Client& ta
     unsigned short resultValue = static_cast<unsigned short>(result);
     unsigned short reasonValue = static_cast<unsigned short>(reason);
 
-    std::memcpy(buffer + size, &packetType, sizeof(packetType));
-    size += sizeof(packetType);
+    WriteUdpHeader(buffer, size, URGENT_PACKET | CRITIC_PACKET, packetType);
 
     std::memcpy(buffer + size, &resultValue, sizeof(resultValue));
     size += sizeof(resultValue);
@@ -760,8 +769,7 @@ void PacketManager::SendPing(sf::UdpSocket& udpSocket, Client& client) {
     char buffer[BUFFER_SIZE];
     std::size_t size = 0;
 
-    std::memcpy(buffer + size, &packetType, sizeof(packetType));
-    size += sizeof(packetType);
+    WriteUdpHeader(buffer, size, NORMAL_PACKET, packetType);
 
     std::memcpy(buffer + size, &clientId, sizeof(clientId));
     size += sizeof(clientId);
@@ -825,8 +833,7 @@ void PacketManager::HandlePing(const char* buffer, std::size_t receivedSize, std
     char responseBuffer[BUFFER_SIZE];
     std::size_t responseSize = 0;
 
-    std::memcpy(responseBuffer + responseSize, &responseType, sizeof(responseType));
-    responseSize += sizeof(responseType);
+    WriteUdpHeader(responseBuffer, responseSize, NORMAL_PACKET, responseType);
 
     std::memcpy(responseBuffer + responseSize, &clientId, sizeof(clientId));
     responseSize += sizeof(clientId);
@@ -966,8 +973,7 @@ void PacketManager::HandleClientTimeout(unsigned short clientId, sf::UdpSocket& 
     udpPacketType packetType = DISCONNECTED_PLAYER;
     unsigned short disconnectedClientId = clientId;
 
-    std::memcpy(buffer + size, &packetType, sizeof(packetType));
-    size += sizeof(packetType);
+    WriteUdpHeader(buffer, size, URGENT_PACKET | CRITIC_PACKET, packetType);
 
     std::memcpy(buffer + size, &disconnectedClientId, sizeof(disconnectedClientId));
     size += sizeof(disconnectedClientId);
@@ -1032,8 +1038,7 @@ void PacketManager::SendIrregularityWarning(sf::UdpSocket& udpSocket, const Clie
     float validX = client.GetX();
     float validY = client.GetY();
 
-    std::memcpy(buffer + size, &packetType, sizeof(packetType));
-    size += sizeof(packetType);
+    WriteUdpHeader(buffer, size, URGENT_PACKET, packetType);
 
     std::memcpy(buffer + size, &clientId, sizeof(clientId));
     size += sizeof(clientId);
@@ -1105,8 +1110,7 @@ void PacketManager::HandleUDPShoot(const char* buffer, std::size_t receivedSize,
         std::size_t outSize = 0;
 
         udpPacketType pktType = SHOOT;
-        std::memcpy(outBuffer + outSize, &pktType, sizeof(pktType));
-        outSize += sizeof(pktType);
+        WriteUdpHeader(outBuffer, outSize, URGENT_PACKET | CRITIC_PACKET, pktType);
 
         std::memcpy(outBuffer + outSize, &shooterNetworkId, sizeof(shooterNetworkId));
         outSize += sizeof(shooterNetworkId);
@@ -1197,8 +1201,7 @@ void PacketManager::SendShootConfirmed(sf::UdpSocket& udpSocket, unsigned short 
     std::size_t outSize = 0;
 
     udpPacketType pktType = SHOOT_CONFIRMED;
-    std::memcpy(outBuffer + outSize, &pktType, sizeof(pktType));
-    outSize += sizeof(pktType);
+    WriteUdpHeader(outBuffer, outSize, URGENT_PACKET, pktType);
 
     std::memcpy(outBuffer + outSize, &shooterClientId, sizeof(shooterClientId));
     outSize += sizeof(shooterClientId);
@@ -1309,8 +1312,7 @@ void PacketManager::HandleUDPHit(const char* buffer, std::size_t receivedSize, s
 	std::size_t size = 0;
 
 	udpPacketType packetType = HIT;
-	std::memcpy(outBuffer + size, &packetType, sizeof(packetType));
-	size += sizeof(packetType);
+    WriteUdpHeader(outBuffer, size, URGENT_PACKET, packetType);
 
 	std::memcpy(outBuffer + size, &targetId, sizeof(targetId));
 	size += sizeof(targetId);
@@ -1408,8 +1410,7 @@ void PacketManager::BroadcastTauntToOthers(sf::UdpSocket& udpSocket, const Clien
     udpPacketType packetType = TAUNT;
     unsigned short clientId = tauntingClient.GetId();
 
-    std::memcpy(buffer + size, &packetType, sizeof(packetType));
-    size += sizeof(packetType);
+    WriteUdpHeader(buffer, size, URGENT_PACKET, packetType);
 
     std::memcpy(buffer + size, &clientId, sizeof(clientId));
     size += sizeof(clientId);
@@ -1458,8 +1459,7 @@ void PacketManager::FinishMatchByIrregularities(unsigned short loserId, sf::UdpS
     matchFinishReason reason = FINISH_BY_IRREGULARITY;
     unsigned short loserClientId = loserId;
 
-    std::memcpy(buffer + size, &packetType, sizeof(packetType));
-    size += sizeof(packetType);
+    WriteUdpHeader(buffer, size, URGENT_PACKET | CRITIC_PACKET, packetType);
 
     std::memcpy(buffer + size, &loserClientId, sizeof(loserClientId));
     size += sizeof(loserClientId);
