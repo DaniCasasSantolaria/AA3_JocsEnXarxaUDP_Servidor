@@ -7,6 +7,9 @@
 #include <fstream>
 #include <cstdint>
 
+#define WALL_CHAR '#'
+#define PLATFORM_CHAR 'P'
+
 void WriteUdpHeader(char* buffer, std::size_t& size, uint8_t flags, udpPacketType packetType) {     //Funcion para escribir la parte inicial del paquete (bitmask y tipo de paquete)
     std::memcpy(buffer + size, &flags, sizeof(flags));
     size += sizeof(flags);
@@ -27,7 +30,7 @@ sf::Packet& operator >>(sf::Packet& packet, packetType& type) {
 }
 
 bool PacketManager::IsSolidTile(char tile) const {
-    return tile == '#' || tile == 'P';
+    return tile == WALL_CHAR || tile == PLATFORM_CHAR;
 }
 
 //Cargar el mapa en la variable string para poder hacer las comprobaciones de colisiones con el player

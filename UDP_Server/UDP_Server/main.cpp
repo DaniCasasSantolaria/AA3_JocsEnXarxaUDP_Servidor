@@ -4,7 +4,7 @@
 #include "TCPServer.h"
 #include <thread>
 
-#define TCP_SERVER_IP sf::IpAddress(10, 8, 0, 3)
+#define TCP_SERVER_IP sf::IpAddress(10, 40, 2, 189)
 #define TCP_SERVER_PORT 55007
 #define UDP_SERVER_PORT 55008
 
